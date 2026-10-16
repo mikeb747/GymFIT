@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, ExternalLink, Unplug, ShieldAlert, CheckCircle2, Smartphone } from 'lucide-react';
+import { X, ExternalLink, Unplug, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { StravaIcon } from './StravaIcon';
 import { buildStravaAuthUrl, STRAVA_CONFIG } from '../utils/stravaOAuth';
 
 interface StravaSettingsModalProps {
@@ -7,8 +8,6 @@ interface StravaSettingsModalProps {
   onClose: () => void;
   stravaAccessToken: string | null;
   athleteName: string | null;
-  displayDensity?: 'standard' | 'compact' | 'comfortable';
-  onDensityChanged?: (d: 'standard' | 'compact' | 'comfortable') => void;
   onTokenUpdated: (token: string | null, athlete?: any) => void;
 }
 
@@ -17,37 +16,12 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
   onClose,
   stravaAccessToken,
   athleteName,
-  displayDensity = 'standard',
-  onDensityChanged,
   onTokenUpdated,
 }) => {
   const [clientIdInput] = useState('');
   const [, setServerConfig] = useState<{ configured: boolean; redirectUri: string } | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [density, setDensity] = useState<'standard' | 'compact' | 'comfortable'>(() => {
-    try {
-      return displayDensity || (localStorage.getItem('ironfit_display_density') as any) || 'standard';
-    } catch {
-      return displayDensity || 'standard';
-    }
-  });
-
-  useEffect(() => {
-    if (displayDensity) {
-      setDensity(displayDensity);
-    }
-  }, [displayDensity]);
-
-  const handleSelectDensity = (newDensity: 'standard' | 'compact' | 'comfortable') => {
-    setDensity(newDensity);
-    try {
-      localStorage.setItem('ironfit_display_density', newDensity);
-    } catch {}
-    if (onDensityChanged) {
-      onDensityChanged(newDensity);
-    }
-  };
 
   useEffect(() => {
     if (isOpen) {
@@ -124,14 +98,18 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 max-h-[92vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#FC5200] text-white flex items-center justify-center font-black text-sm">
-              S
-            </div>
+            <StravaIcon className="w-9 h-9" />
             <div>
               <h3 className="text-base font-bold text-white">Strava Integration</h3>
               <p className="text-xs text-slate-400">Direct cloud sync for weight training activities</p>
@@ -140,7 +118,8 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+            className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -169,7 +148,7 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
             <button
               type="button"
               onClick={handleDisconnect}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Unplug className="w-3.5 h-3.5" />
               <span>Disconnect</span>
@@ -214,66 +193,6 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
             </div>
           </div>
         )}
-
-        {/* Display Density & Screen Scaling for Google Pixel 8 Pro / High-DPI Mobile */}
-        <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase font-bold tracking-wider text-slate-400">Display Density & UI Scaling</div>
-              <div className="text-xs text-slate-400 mt-0.5">Adapt layout for high-density phones (e.g. Google Pixel 8 Pro)</div>
-            </div>
-            <Smartphone className="w-4 h-4 text-amber-400 shrink-0" />
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => handleSelectDensity('compact')}
-              className={`py-2 px-1.5 rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-0.5 border transition-all cursor-pointer ${
-                density === 'compact'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-md shadow-amber-500/10'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <span>Pixel / Compact</span>
-              <span className="text-[10px] text-slate-500 font-mono">Dense (412px)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectDensity('standard')}
-              className={`py-2 px-1.5 rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-0.5 border transition-all cursor-pointer ${
-                density === 'standard'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-md shadow-amber-500/10'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <span>Standard</span>
-              <span className="text-[10px] text-slate-500 font-mono">Default 100%</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectDensity('comfortable')}
-              className={`py-2 px-1.5 rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-0.5 border transition-all cursor-pointer ${
-                density === 'comfortable'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500 font-bold shadow-md shadow-amber-500/10'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <span>Comfortable</span>
-              <span className="text-[10px] text-slate-500 font-mono">Spacious</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-slate-800 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );

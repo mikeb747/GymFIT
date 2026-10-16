@@ -20,7 +20,9 @@ import { WeightScrollPicker } from './components/WeightScrollPicker';
 import { ExercisePickerModal } from './components/ExercisePickerModal';
 import { WorkoutSummaryModal } from './components/WorkoutSummaryModal';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
+import { SettingsModal } from './components/SettingsModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { StravaIcon } from './components/StravaIcon';
 import { downloadFitFile } from './utils/fitGenerator';
 import { checkAndProcessOAuthRedirect } from './utils/stravaOAuth';
 import { uploadWorkoutToStrava } from './utils/stravaUpload';
@@ -59,13 +61,14 @@ const STORAGE_KEYS = {
   HERO_HEADING: 'ironfit_hero_heading',
   HERO_DESCRIPTION: 'ironfit_hero_desc',
   DISPLAY_DENSITY: 'ironfit_display_density',
+  THEME: 'ironfit_theme',
 };
 
 function migrateWorkoutExercises(
-  exercises: Array<Omit<WorkoutExercise, 'exerciseId'> & { exerciseId: number | string }>
+  exercises: Array<Omit<WorkoutExercise, 'exerciseId'> & { exerciseId?: number | string | null }>
 ): WorkoutExercise[] {
   return exercises.map((exercise) => {
-    const exerciseId = resolveExerciseId(exercise.exerciseId);
+    const exerciseId = exercise.exerciseId != null ? resolveExerciseId(exercise.exerciseId) : undefined;
     const catalogExercise = exerciseId === undefined
       ? INITIAL_EXERCISES.find((candidate) =>
           candidate.name.trim().toLowerCase() === exercise.name.trim().toLowerCase()
@@ -84,6 +87,23 @@ export default function App() {
   // -------------------------------------------------------------
   // State Initialization
   // -------------------------------------------------------------
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.THEME);
+      if (stored === 'light' || stored === 'dark') return stored;
+      return 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  const handleThemeChanged = (newTheme: 'dark' | 'light') => {
+    setTheme(newTheme);
+    try {
+      localStorage.setItem(STORAGE_KEYS.THEME, newTheme);
+    } catch {}
+  };
+
   const [displayDensity, setDisplayDensity] = useState<'standard' | 'compact' | 'comfortable'>(() => {
     try {
       return (localStorage.getItem(STORAGE_KEYS.DISPLAY_DENSITY) as any) || 'standard';
@@ -98,6 +118,8 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.DISPLAY_DENSITY, newDensity);
     } catch {}
   };
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<number[]>(() => {
     try {
@@ -550,6 +572,24 @@ export default function App() {
     }
   }, [activeWorkout]);
 
+  // Sync theme to document element and meta theme-color
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+      if (metaThemeColor) {
+        metaThemeColor.setAttribute('content', theme === 'light' ? '#f8fafc' : '#090a0f');
+      }
+    }
+  }, [theme]);
+
+  // Sync display density attribute to document element
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-density', displayDensity);
+    }
+  }, [displayDensity]);
+
   // Handle incoming Strava OAuth redirect code (for GitHub Pages static hosting or mobile PWA)
   useEffect(() => {
     checkAndProcessOAuthRedirect().then((result) => {
@@ -891,32 +931,28 @@ export default function App() {
       {/* ========================================================= */}
       <header className="sticky top-0 z-40 bg-[#090A0F]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          {/* Brand Wordmark (Long Press 600ms to Edit App Name & Tagline) */}
-          <div
-            onMouseDown={handleStartBrandLongPress}
-            onMouseUp={handleCancelBrandLongPress}
-            onMouseLeave={handleCancelBrandLongPress}
-            onTouchStart={handleStartBrandLongPress}
-            onTouchEnd={handleCancelBrandLongPress}
-            onTouchCancel={handleCancelBrandLongPress}
-            onContextMenu={(e) => {
-              if (isLongPressTriggeredRef.current) e.preventDefault();
-            }}
-            title="Press and hold (600ms) to customize title and tagline"
-            className="flex items-center gap-2.5 cursor-pointer select-none group active:scale-[0.98] transition-transform"
+          {/* Brand Wordmark & Icon (Clicking opens Settings) */}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Open Settings"
+            aria-label="Open Settings"
+            className="flex items-center gap-2.5 cursor-pointer select-none group active:scale-[0.98] transition-transform text-left p-1 -m-1 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
             <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/20 group-hover:brightness-110">
               <Dumbbell className="w-4 h-4 stroke-[2.5]" />
             </div>
-            <div>
-              <span className="text-base font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors">
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm sm:text-base font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors leading-snug">
                 {brandTitle}
               </span>
-              <span className="hidden sm:inline-block text-xs text-slate-400 ml-2 font-medium">
-                {brandSubtitle}
-              </span>
+              {brandSubtitle && (
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight truncate block max-w-[185px] sm:max-w-xs">
+                  {brandSubtitle}
+                </span>
+              )}
             </div>
-          </div>
+          </button>
 
           {/* Action cluster */}
           <div className="flex items-center gap-2">
@@ -927,14 +963,15 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsStravaSettingsOpen(true)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              title={stravaToken ? 'Strava Connected - click to manage' : 'Connect Strava'}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
                 stravaToken
-                  ? 'bg-slate-800 text-emerald-400 border border-slate-700'
-                  : 'bg-[#FC5200]/15 hover:bg-[#FC5200] text-[#FC5200] hover:text-white border border-[#FC5200]/30'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/80 shadow-emerald-600/20'
+                  : 'bg-[#FC5200] hover:bg-[#e04900] text-white border border-[#FC5200]/80 shadow-[#FC5200]/20'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-current" />
-              <span>{stravaToken ? 'Strava Linked' : 'Connect Strava'}</span>
+              <StravaIcon className="w-4 h-4 rounded-full shadow-xs" />
+              <span>{stravaToken ? 'Connected' : 'Connect'}</span>
             </button>
 
             {/* If workout is running, show indicator */}
@@ -1055,16 +1092,6 @@ export default function App() {
                     onOpenWeightPicker={handleOpenWeightPicker}
                   />
                 ))}
-
-                {/* Bottom Add Exercise Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsExercisePickerOpen(true)}
-                  className="w-full py-3 px-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-amber-400 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer shadow-sm"
-                >
-                  <Plus className="w-4 h-4 stroke-[3] shrink-0" />
-                  <span>Add Exercise</span>
-                </button>
               </div>
             )}
           </div>
@@ -1453,7 +1480,7 @@ export default function App() {
               IronFIT Strength & Conditioning Tracker
             </span>
             <span className="text-xs font-mono text-slate-500 select-none">
-              v1.0.9
+              v1.1.2
             </span>
           </div>
         </main>
@@ -1462,6 +1489,30 @@ export default function App() {
       {/* ========================================================= */}
       {/* MODALS */}
       {/* ========================================================= */}
+
+      {/* Settings Modal (Theme, Display Density & Preferences) */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        theme={theme}
+        onThemeChanged={handleThemeChanged}
+        displayDensity={displayDensity}
+        onDensityChanged={handleDensityChanged}
+        brandTitle={brandTitle}
+        brandSubtitle={brandSubtitle}
+        onSaveBrand={(title, subtitle) => {
+          setBrandTitle(title);
+          setBrandSubtitle(subtitle);
+          localStorage.setItem(STORAGE_KEYS.BRAND_TITLE, title);
+          localStorage.setItem(STORAGE_KEYS.BRAND_SUBTITLE, subtitle);
+        }}
+        onResetBrand={() => {
+          setBrandTitle('IronFIT');
+          setBrandSubtitle('Strength & Strava FIT Uploader');
+          localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
+          localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
+        }}
+      />
 
       {/* 1. Multi-Figure Digit Drum Weight Scroll Wheel */}
       <WeightScrollPicker
@@ -1487,8 +1538,6 @@ export default function App() {
         onClose={() => setIsStravaSettingsOpen(false)}
         stravaAccessToken={stravaToken}
         athleteName={athleteName}
-        displayDensity={displayDensity}
-        onDensityChanged={handleDensityChanged}
         onTokenUpdated={handleTokenUpdated}
       />
 
@@ -1774,84 +1823,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 8. Customize Brand Wordmark & Subtitle (600ms Long-Press Modal) */}
-      {isEditingBrandModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl text-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-                  <Pencil className="w-4 h-4" />
-                </div>
-                <h4 className="text-sm font-bold text-white">Customize Header Text</h4>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsEditingBrandModal(false)}
-                className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
-                  Main Brand Title
-                </label>
-                <input
-                  type="text"
-                  value={tempBrandTitle}
-                  onChange={(e) => setTempBrandTitle(e.target.value)}
-                  placeholder="e.g. IronFIT"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:border-amber-400 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
-                  Subtitle / Uploader Text
-                </label>
-                <input
-                  type="text"
-                  value={tempBrandSubtitle}
-                  onChange={(e) => setTempBrandSubtitle(e.target.value)}
-                  placeholder="e.g. Strength & Strava FIT Uploader"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-amber-400"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={handleResetBrand}
-                className="px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-              >
-                Reset Default
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditingBrandModal(false)}
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveBrand}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* 9. Discard Workout Confirmation Modal */}
+      {/* 8. Discard Workout Confirmation Modal */}
       {showDiscardConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl text-slate-100 flex flex-col gap-4">

@@ -15,13 +15,6 @@ interface WorkoutExerciseCardProps {
   onSetCompleted?: (set: WorkoutSet) => void;
 }
 
-const SET_TYPE_LABELS: Record<SetType, string> = {
-  normal: 'N',
-  warmup: 'W',
-  drop: 'D',
-  failure: 'F',
-};
-
 export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
   exercise,
   exerciseIndex,
@@ -61,12 +54,6 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
     if (willBeCompleted && onSetCompleted) {
       onSetCompleted(currentSet);
     }
-  };
-
-  const cycleSetType = (setIndex: number, currentType: SetType) => {
-    const order: SetType[] = ['normal', 'warmup', 'drop', 'failure'];
-    const nextIndex = (order.indexOf(currentType) + 1) % order.length;
-    onUpdateSet(exerciseIndex, setIndex, { type: order[nextIndex] });
   };
 
   return (
@@ -146,7 +133,7 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
 
       {/* Sets Column Headers with Reps / Duration switch dropdown */}
       <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] uppercase font-bold tracking-wider text-slate-400 px-2 mb-2">
-        <div className="w-12 sm:w-14 shrink-0 text-left">Set</div>
+        <div className="w-8 sm:w-9 shrink-0 text-center">Set</div>
         <div className="flex-1 min-w-0 text-center">Weight (kg)</div>
         <div className="flex-1 min-w-0 flex items-center justify-center">
           {/* Reps vs Duration Dropdown per user prompt! */}
@@ -177,25 +164,11 @@ export const WorkoutExerciseCard: React.FC<WorkoutExerciseCardProps> = ({
                   : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
               }`}
             >
-              {/* Set Type & Number */}
-              <div className="w-12 sm:w-14 shrink-0 flex items-center gap-1 flex-nowrap">
-                <button
-                  type="button"
-                  onClick={() => cycleSetType(sIdx, set.type)}
-                  title={`Set type: ${set.type} (click to cycle)`}
-                  className={`w-6 h-6 rounded-md text-[11px] font-mono font-bold flex items-center justify-center shrink-0 transition-colors ${
-                    set.type === 'warmup'
-                      ? 'bg-amber-900/60 text-amber-300 border border-amber-700/50'
-                      : set.type === 'drop'
-                      ? 'bg-purple-900/60 text-purple-300 border border-purple-700/50'
-                      : set.type === 'failure'
-                      ? 'bg-rose-900/60 text-rose-300 border border-rose-700/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700'
-                  }`}
-                >
-                  {SET_TYPE_LABELS[set.type]}
-                </button>
-                <span className="text-xs font-mono font-bold text-slate-400 truncate">#{set.setNumber}</span>
+              {/* Set Number */}
+              <div className="w-8 sm:w-9 shrink-0 flex items-center justify-center">
+                <span className="exercise-set-badge w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700/70 font-mono font-bold text-xs flex items-center justify-center shadow-xs">
+                  {set.setNumber || sIdx + 1}
+                </span>
               </div>
 
               {/* Weight (kg) with Clickable Drum Picker Trigger + Two Up/Down Nudge Buttons */}

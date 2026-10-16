@@ -93,11 +93,11 @@ export const WorkoutTimerHud: React.FC<WorkoutTimerHudProps> = ({
   };
 
   return (
-    <div className="w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-slate-100 px-2 sm:px-4 py-2 sm:py-2.5 shadow-lg sticky top-0 z-30">
+    <div className="timer-hud-container w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-slate-100 px-2 sm:px-4 py-2 sm:py-2.5 shadow-lg sticky top-0 z-30">
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-1 sm:gap-3 flex-nowrap">
-        {/* Continuous Running Total Time */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 shrink-0">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-slate-800 flex items-center justify-center text-amber-400 border border-slate-700/80 shrink-0">
+        {/* Continuous Running Total Time (Left Symmetrical Pane) */}
+        <div className="timer-lap-badge flex items-center gap-1.5 sm:gap-2 bg-slate-950/80 py-1 px-1.5 sm:px-2 rounded-xl border border-slate-800 shrink-0">
+          <div className="timer-subtle-btn w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-slate-800 flex items-center justify-center text-amber-400 border border-slate-700/80 shrink-0">
             <TimerIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
           </div>
 
@@ -169,7 +169,7 @@ export const WorkoutTimerHud: React.FC<WorkoutTimerHudProps> = ({
             className={`h-[30px] w-[30px] sm:h-[34px] sm:w-[34px] rounded-lg font-bold flex items-center justify-center active:scale-95 transition-all cursor-pointer shrink-0 ${
               isPaused
                 ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80'
+                : 'timer-subtle-btn bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80'
             }`}
           >
             {isPaused ? (
@@ -180,9 +180,9 @@ export const WorkoutTimerHud: React.FC<WorkoutTimerHudProps> = ({
           </button>
         </div>
 
-        {/* Lap / Interval Time and Lap History Button: Grouped closely without wrapping */}
+        {/* Lap / Interval Time and Lap History (Right Symmetrical Pane) */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-950/80 py-1 px-1.5 sm:px-2 rounded-xl border border-slate-800 shrink-0">
+          <div className="timer-lap-badge flex items-center gap-1 sm:gap-1.5 bg-slate-950/80 py-1 px-1.5 sm:px-2 rounded-xl border border-slate-800 shrink-0">
             <div className="flex flex-col text-right">
               <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-400 leading-none">
                 Lap
@@ -208,25 +208,28 @@ export const WorkoutTimerHud: React.FC<WorkoutTimerHudProps> = ({
               type="button"
               onClick={handleResetLapOnly}
               title="Reset lap timer to 0:00"
-              className="h-[30px] w-[30px] sm:h-[34px] sm:w-[34px] rounded-lg bg-slate-700/90 hover:bg-slate-600 active:bg-slate-500 text-slate-100 border border-slate-600/80 shadow-sm flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              className="timer-subtle-btn h-[30px] w-[30px] sm:h-[34px] sm:w-[34px] rounded-lg bg-slate-700/90 hover:bg-slate-600 active:bg-slate-500 text-slate-100 border border-slate-600/80 shadow-sm flex items-center justify-center transition-colors cursor-pointer shrink-0"
             >
               <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
             </button>
-          </div>
 
-          {/* Lap drawer toggle */}
-          {lapHistory.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowLapDrawer(!showLapDrawer)}
-              title="Toggle lap splits history"
-              className="h-[30px] sm:h-[34px] flex items-center gap-0.5 sm:gap-1 text-xs text-slate-200 hover:text-white px-2 sm:px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700/80 transition-colors shrink-0 cursor-pointer"
-            >
-              <span className="hidden sm:inline">Laps </span>
-              <span className="font-mono font-bold">({lapHistory.length})</span>
-              {showLapDrawer ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          )}
+            {/* Lap Drawer Toggle Button - same size as Reset button and inside the same pane */}
+            {lapHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowLapDrawer(!showLapDrawer)}
+                title={`Lap history (${lapHistory.length} splits)`}
+                aria-label="Toggle lap splits"
+                className="timer-subtle-btn h-[30px] w-[30px] sm:h-[34px] sm:w-[34px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700/80 shadow-sm flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              >
+                {showLapDrawer ? (
+                  <ChevronUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
