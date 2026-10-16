@@ -1,7 +1,7 @@
 {
-  "id": "ironfit-strength-workout-tracker",
-  "name": "IronFIT - Strength Tracker",
-  "short_name": "IronFIT",
+  "id": "gymfit-strength-workout-tracker",
+  "name": "GymFIT - Strength Tracker",
+  "short_name": "GymFIT",
   "description": "Android strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT export.",
   "start_url": "./index.html",
   "scope": "./",

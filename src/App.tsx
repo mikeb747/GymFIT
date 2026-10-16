@@ -290,9 +290,11 @@ export default function App() {
     success?: boolean;
   } | null>(null);
 
-  // Brand Header Customization (600ms Long Press)
+  // Brand Header Customization (600ms Long Press or Settings)
   const [brandTitle, setBrandTitle] = useState(() => {
-    return localStorage.getItem(STORAGE_KEYS.BRAND_TITLE) || 'IronFIT';
+    const saved = localStorage.getItem(STORAGE_KEYS.BRAND_TITLE);
+    if (!saved || saved === 'IronFIT') return 'GymFIT';
+    return saved;
   });
   const [brandSubtitle, setBrandSubtitle] = useState(() => {
     return localStorage.getItem(STORAGE_KEYS.BRAND_SUBTITLE) || 'Strength & Strava FIT Uploader';

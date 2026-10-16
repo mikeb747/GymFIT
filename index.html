@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>IronFIT - Strength Tracker & Strava FIT Generator</title>
+    <title>GymFIT - Strength Tracker & Strava FIT Generator</title>
     <meta name="description" content="Android-optimized strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT activity export." />
-    <meta property="og:title" content="IronFIT - Strength Tracker & Strava FIT Generator" />
+    <meta property="og:title" content="GymFIT - Strength Tracker & Strava FIT Generator" />
     <meta property="og:description" content="Android-optimized strength workout logger with digit-scroll wheel weight selection, dual continuous and lap timers, and Strava-compatible Garmin .FIT activity export." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -22,9 +22,10 @@
   </head>
   <body>
     <script>
-      // Normalizes GitHub Pages path to include trailing slash (/IronFIT/) so PWA manifest scope is isolated from other apps on the domain
-      if (window.location.hostname.endsWith('github.io') && window.location.pathname.replace(/\/+$/, '') === '/IronFIT' && !window.location.pathname.endsWith('/')) {
-        window.location.replace('/IronFIT/' + window.location.search + window.location.hash);
+      // Normalizes GitHub Pages path to include trailing slash (/GymFIT/ or /IronFIT/) so PWA manifest scope is isolated
+      var repoMatch = window.location.pathname.match(/^\/(GymFIT|IronFIT)$/i);
+      if (window.location.hostname.endsWith('github.io') && repoMatch) {
+        window.location.replace('/' + repoMatch[1] + '/' + window.location.search + window.location.hash);
       }
     </script>
     <div id="root"></div>

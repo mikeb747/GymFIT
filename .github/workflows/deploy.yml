@@ -1,4 +1,4 @@
-name: Deploy IronFIT to GitHub Pages
+name: Deploy GymFIT to GitHub Pages
 
 on:
   push:
