@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#090A0F"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none" stroke="#262B3D" stroke-width="8"/>
+  <g transform="translate(64, 64) scale(0.75)" stroke="#F59E0B" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Barbell Icon -->
+    <line x1="80" y1="256" x2="432" y2="256"/>
+    <rect x="120" y="150" width="36" height="212" rx="16" fill="#F59E0B"/>
+    <rect x="70" y="180" width="30" height="152" rx="12" fill="#F59E0B"/>
+    <rect x="356" y="150" width="36" height="212" rx="16" fill="#F59E0B"/>
+    <rect x="412" y="180" width="30" height="152" rx="12" fill="#F59E0B"/>
+  </g>
+  <circle cx="390" cy="120" r="32" fill="#FC5200"/>
+  <path d="M382 108 L398 120 L382 132" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
