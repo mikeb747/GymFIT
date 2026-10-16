@@ -967,7 +967,7 @@ export default function App() {
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
                 stravaToken
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/80 shadow-emerald-600/20'
-                  : 'bg-[#FC5200] hover:bg-[#e04900] text-white border border-[#FC5200]/80 shadow-[#FC5200]/20'
+                  : 'bg-sky-500 hover:bg-sky-400 text-white border border-sky-400/80 shadow-sky-500/20'
               }`}
             >
               <StravaIcon className="w-4 h-4 rounded-full shadow-xs" />
