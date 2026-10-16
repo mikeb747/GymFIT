@@ -1,5 +1,6 @@
 import { CompletedWorkout, WorkoutExercise } from '../types/workout';
 import { getExerciseById, getFitExerciseDefinition } from '../data/exerciseCatalog';
+import { getDefaultActivityName } from './activityName';
 
 // FIT CRC-16 Lookup Table (CCITT-FIT)
 const CRC_TABLE = [
@@ -456,7 +457,7 @@ export function generateFitFile(workout: CompletedWorkout): Uint8Array {
   const uniqueExercises: WorkoutExercise[] = workout.exercises.length > 0 ? workout.exercises : [
     {
       exerciseId: 1,
-      name: 'Strength & Conditioning',
+      name: getDefaultActivityName(workout.startTime),
       sets: [
         {
           id: 'set-default',
@@ -585,7 +586,7 @@ export function generateFitFile(workout: CompletedWorkout): Uint8Array {
     const { category, subtype } = getWorkoutExerciseDefinition(firstEx);
     allSets.push({
       exerciseIndex: 0,
-      exerciseName: firstEx?.name || 'Strength & Conditioning',
+      exerciseName: firstEx?.name || getDefaultActivityName(workout.startTime),
       category,
       categorySubtype: subtype,
       weightKg: 20.0,
@@ -696,7 +697,7 @@ export function generateFitFile(workout: CompletedWorkout): Uint8Array {
 
   // Approximate calories: ~5.5 kcal per minute of strength training + total volume load factor
   const estimatedCalories = Math.max(25, Math.round((workout.durationSeconds / 60) * 5.8 + (workout.totalVolumeKg / 400)));
-  const workoutName = workout.title || 'Strength & Conditioning';
+  const workoutName = workout.title?.trim() || getDefaultActivityName(workout.startTime);
 
   // Data
   records.writeUint8(0x00 | 7);
@@ -807,7 +808,7 @@ export function getFitFileName(workout: CompletedWorkout): string {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `IronFIT-Strength-${day}${month}${year}${hours}${minutes}${seconds}.fit`;
+  return `GymFIT-Strength-${day}${month}${year}${hours}${minutes}${seconds}.fit`;
 }
 
 /**

@@ -26,6 +26,7 @@ import { StravaIcon } from './components/StravaIcon';
 import { downloadFitFile } from './utils/fitGenerator';
 import { checkAndProcessOAuthRedirect } from './utils/stravaOAuth';
 import { uploadWorkoutToStrava } from './utils/stravaUpload';
+import { getDefaultActivityName } from './utils/activityName';
 import {
   Dumbbell,
   Play,
@@ -331,7 +332,7 @@ export default function App() {
   };
 
   const handleSaveBrand = () => {
-    const finalTitle = tempBrandTitle.trim() || 'IronFIT';
+    const finalTitle = tempBrandTitle.trim() || 'GymFIT';
     const finalSub = tempBrandSubtitle.trim() || 'Strength & Strava FIT Uploader';
     setBrandTitle(finalTitle);
     setBrandSubtitle(finalSub);
@@ -341,7 +342,7 @@ export default function App() {
   };
 
   const handleResetBrand = () => {
-    setBrandTitle('IronFIT');
+    setBrandTitle('GymFIT');
     setBrandSubtitle('Strength & Strava FIT Uploader');
     localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
     localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
@@ -663,10 +664,11 @@ export default function App() {
 
   // Start empty blank workout
   const handleStartBlankWorkout = () => {
+    const startTime = Date.now();
     setActiveWorkout({
-      id: `wkt-${Date.now()}`,
-      title: 'Strength & Conditioning',
-      startTime: Date.now(),
+      id: `wkt-${startTime}`,
+      title: getDefaultActivityName(startTime),
+      startTime,
       exercises: [],
       isPaused: false,
     });
@@ -858,7 +860,7 @@ export default function App() {
     const finalId = editingCompletedId || `completed-${Date.now()}`;
     const completed: CompletedWorkout = {
       id: finalId,
-      title: activeWorkout.title || 'Strength & Conditioning',
+      title: activeWorkout.title?.trim() || getDefaultActivityName(activeWorkout.startTime),
       startTime: activeWorkout.startTime,
       endTime: activeWorkout.startTime + (durationSeconds * 1000),
       durationSeconds,
@@ -1479,7 +1481,7 @@ export default function App() {
           {/* Main Dashboard Footer Tag */}
           <div className="pt-8 pb-3 flex items-center justify-between border-t border-slate-900/60 mt-6">
             <span className="text-xs font-mono text-slate-500">
-              IronFIT Strength & Conditioning Tracker
+              GymFIT Strength & Conditioning Tracker
             </span>
             <span className="text-xs font-mono text-slate-500 select-none">
               v1.1.2
@@ -1509,7 +1511,7 @@ export default function App() {
           localStorage.setItem(STORAGE_KEYS.BRAND_SUBTITLE, subtitle);
         }}
         onResetBrand={() => {
-          setBrandTitle('IronFIT');
+          setBrandTitle('GymFIT');
           setBrandSubtitle('Strength & Strava FIT Uploader');
           localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
           localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);

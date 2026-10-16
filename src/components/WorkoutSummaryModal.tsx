@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { CompletedWorkout } from '../types/workout';
 import { downloadFitFile, getFitFileName } from '../utils/fitGenerator';
 import { uploadWorkoutToStrava, StravaUploadResult } from '../utils/stravaUpload';
+import { getDefaultActivityName } from '../utils/activityName';
 import { Download, UploadCloud, ExternalLink, X, Trophy, Clock, Calendar, AlertTriangle, ArrowLeft, Check } from 'lucide-react';
 
 interface WorkoutSummaryModalProps {
@@ -42,7 +43,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
   };
 
   // Editable fields: Title, Date, Time of Day, Duration
-  const [title, setTitle] = useState(() => workout?.title || 'Strength & Conditioning');
+  const [title, setTitle] = useState(() => workout?.title || getDefaultActivityName(workout?.startTime));
   const [dateStr, setDateStr] = useState(() => (workout ? toLocalDateString(workout.startTime) : ''));
   const [timeStr, setTimeStr] = useState(() => (workout ? toLocalTimeString(workout.startTime) : ''));
   const [durationMinutes, setDurationMinutes] = useState(() =>
@@ -55,7 +56,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
   // Synchronize state immediately whenever the modal is opened or the workout changes
   useEffect(() => {
     if (workout && isOpen) {
-      setTitle(workout.title || 'Strength & Conditioning');
+      setTitle(workout.title || getDefaultActivityName(workout.startTime));
       setDateStr(toLocalDateString(workout.startTime));
       setTimeStr(toLocalTimeString(workout.startTime));
       setDurationMinutes(Math.floor(workout.durationSeconds / 60));
@@ -87,7 +88,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
 
     return {
       ...workout,
-      title: title.trim() || 'Strength & Conditioning',
+      title: title.trim() || getDefaultActivityName(computedStartTime),
       startTime: computedStartTime,
       endTime: computedEndTime,
       durationSeconds: totalDurSec,
@@ -186,7 +187,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Strength & Conditioning"
+              placeholder={workout ? `e.g. ${getDefaultActivityName(workout.startTime)}` : 'e.g. Friday Strength & Conditioning'}
               className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold text-sm focus:outline-none focus:border-amber-400"
             />
           </div>

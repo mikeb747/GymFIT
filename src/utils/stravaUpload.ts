@@ -1,5 +1,6 @@
 import { CompletedWorkout } from '../types/workout';
 import { generateFitFile, workoutToFitBase64, getFitFileName } from './fitGenerator';
+import { getDefaultActivityName } from './activityName';
 
 export interface StravaUploadResult {
   success: boolean;
@@ -12,7 +13,7 @@ export interface StravaUploadResult {
 
 export function buildStravaWorkoutDescription(workout: CompletedWorkout): string {
   const lines: string[] = [];
-  lines.push(`Logged with IronFIT • Total Volume: ${workout.totalVolumeKg.toLocaleString()} kg across ${workout.totalSets} sets.`);
+  lines.push(`Logged with GymFIT • Total Volume: ${workout.totalVolumeKg.toLocaleString()} kg across ${workout.totalSets} sets.`);
   lines.push('');
   lines.push('Workout Exercises:');
 
@@ -46,7 +47,7 @@ export async function uploadWorkoutToStrava(
   workout: CompletedWorkout,
   accessToken: string
 ): Promise<StravaUploadResult> {
-  const title = workout.title || 'Strength & Conditioning';
+  const title = workout.title?.trim() || getDefaultActivityName(workout.startTime);
   const description = buildStravaWorkoutDescription(workout);
 
   // Check if we are running in a static hosting environment (like GitHub Pages)

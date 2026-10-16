@@ -52,7 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleSaveBrandCustomization = () => {
-    const finalTitle = tempTitle.trim() || 'IronFIT';
+    const finalTitle = tempTitle.trim() || 'GymFIT';
     const finalSub = tempSubtitle.trim() || 'Strength & Strava FIT Uploader';
     onSaveBrand(finalTitle, finalSub);
     setIsEditingBrand(false);
@@ -62,7 +62,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleResetBrandDefaults = () => {
     onResetBrand();
-    setTempTitle('IronFIT');
+    setTempTitle('GymFIT');
     setTempSubtitle('Strength & Strava FIT Uploader');
     setIsEditingBrand(false);
   };
@@ -246,7 +246,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="text"
                   value={tempTitle}
                   onChange={(e) => setTempTitle(e.target.value)}
-                  placeholder="e.g. IronFIT"
+                  placeholder="e.g. GymFIT"
                   className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-sm focus:outline-none focus:border-amber-400 font-bold"
                 />
               </div>
