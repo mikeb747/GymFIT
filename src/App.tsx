@@ -45,6 +45,7 @@ import {
   Pencil,
   Trash2,
   UploadCloud,
+  ExternalLink,
 } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -180,7 +181,10 @@ export default function App() {
       const stored = localStorage.getItem(STORAGE_KEYS.TEMPLATES);
       if (stored) {
         const parsed: WorkoutTemplate[] = JSON.parse(stored);
-        return parsed.map((template) => ({
+        const existingIds = new Set(parsed.map((t) => t.id));
+        const missingInitial = INITIAL_TEMPLATES.filter((initTpl) => !existingIds.has(initTpl.id));
+        const combined = [...parsed, ...missingInitial];
+        return combined.map((template) => ({
           ...template,
           exerciseIds: template.exerciseIds
             .map((id) => resolveExerciseId(id))
@@ -289,6 +293,7 @@ export default function App() {
     loading: boolean;
     message?: string;
     success?: boolean;
+    activityId?: number | string;
   } | null>(null);
 
   // Brand Header Customization (600ms Long Press or Settings)
@@ -504,16 +509,24 @@ export default function App() {
       setIsStravaSettingsOpen(true);
       return;
     }
-    setStravaUploadStatus({ id: wkt.id, loading: true });
+    setStravaUploadStatus({ id: wkt.id, loading: true, message: 'Uploading to Strava...' });
     try {
-      const res = await uploadWorkoutToStrava(wkt, stravaToken);
+      const res = await uploadWorkoutToStrava(wkt, stravaToken, (msg) => {
+        setStravaUploadStatus({ id: wkt.id, loading: true, message: msg });
+      });
       if (res.success) {
         setStravaUploadStatus({
           id: wkt.id,
           loading: false,
           success: true,
-          message: 'Workout uploaded to Strava successfully!',
+          activityId: res.activityId,
+          message: res.activityId
+            ? `Activity ready on Strava! (ID: ${res.activityId})`
+            : res.status || 'Workout uploaded to Strava successfully!',
         });
+        setTimeout(() => {
+          setStravaUploadStatus((prev) => (prev?.id === wkt.id ? null : prev));
+        }, 8000);
       } else {
         setStravaUploadStatus({
           id: wkt.id,
@@ -521,6 +534,9 @@ export default function App() {
           success: false,
           message: res.error || 'Strava upload failed.',
         });
+        setTimeout(() => {
+          setStravaUploadStatus((prev) => (prev?.id === wkt.id ? null : prev));
+        }, 6000);
       }
     } catch (err: any) {
       setStravaUploadStatus({
@@ -529,10 +545,10 @@ export default function App() {
         success: false,
         message: err.message || 'Error communicating with Strava.',
       });
+      setTimeout(() => {
+        setStravaUploadStatus((prev) => (prev?.id === wkt.id ? null : prev));
+      }, 6000);
     }
-    setTimeout(() => {
-      setStravaUploadStatus((prev) => (prev?.id === wkt.id ? null : prev));
-    }, 4500);
   };
 
   // Sorted exercises with favorites at top for routine builder
@@ -1467,13 +1483,31 @@ export default function App() {
                     {/* Strava upload inline toast/feedback */}
                     {stravaUploadStatus?.id === wkt.id && (
                       <div
-                        className={`p-2.5 rounded-xl text-xs flex items-center gap-2 animate-fade-in ${
-                          stravaUploadStatus.success
+                        className={`p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 animate-fade-in ${
+                          stravaUploadStatus.loading
+                            ? 'bg-amber-950/50 border border-amber-800/80 text-amber-300'
+                            : stravaUploadStatus.success
                             ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
                             : 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
                         }`}
                       >
-                        <span className="font-medium">{stravaUploadStatus.message}</span>
+                        <div className="flex items-center gap-2">
+                          {stravaUploadStatus.loading && (
+                            <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                          )}
+                          <span className="font-medium">{stravaUploadStatus.message}</span>
+                        </div>
+                        {stravaUploadStatus.activityId && (
+                          <a
+                            href={`https://www.strava.com/activities/${stravaUploadStatus.activityId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-emerald-300 hover:text-white flex items-center gap-1 shrink-0 font-bold ml-2"
+                          >
+                            <span>View</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>

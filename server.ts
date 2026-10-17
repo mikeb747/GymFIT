@@ -208,12 +208,36 @@ app.post('/api/strava/upload', async (req, res) => {
 
     res.json({
       success: true,
-      uploadId: data.id,
+      uploadId: data.id_str || data.id,
       activityId: data.activity_id,
       status: data.status,
+      error: data.error || null,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Internal upload error' });
+  }
+});
+
+// Check status of a Strava upload (polling endpoint)
+app.get('/api/strava/uploads/:uploadId', async (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/uploads/${uploadId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: authHeader,
+      },
+    });
+
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error checking upload status' });
   }
 });
 

@@ -3,7 +3,7 @@ import { CompletedWorkout } from '../types/workout';
 import { downloadFitFile, getFitFileName } from '../utils/fitGenerator';
 import { uploadWorkoutToStrava, StravaUploadResult } from '../utils/stravaUpload';
 import { getDefaultActivityName } from '../utils/activityName';
-import { Download, UploadCloud, ExternalLink, X, Trophy, Clock, Calendar, AlertTriangle, ArrowLeft, Check } from 'lucide-react';
+import { Download, UploadCloud, ExternalLink, X, Trophy, Clock, Calendar, AlertTriangle, ArrowLeft, Check, CheckCircle2, RefreshCw } from 'lucide-react';
 
 interface WorkoutSummaryModalProps {
   isOpen: boolean;
@@ -25,6 +25,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
   onExitWorkout,
 }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgressMsg, setUploadProgressMsg] = useState('');
   const [uploadStatus, setUploadStatus] = useState<StravaUploadResult | null>(null);
 
   const toLocalDateString = (ts: number) => {
@@ -62,6 +63,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
       setDurationMinutes(Math.floor(workout.durationSeconds / 60));
       setDurationSeconds(workout.durationSeconds % 60);
       setUploadStatus(null);
+      setUploadProgressMsg('');
     }
   }, [workout, isOpen]);
 
@@ -120,9 +122,16 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
 
     setIsUploading(true);
     setUploadStatus(null);
+    setUploadProgressMsg('Sending workout to Strava...');
 
     try {
-      const result = await uploadWorkoutToStrava(resolvedWorkout, stravaAccessToken);
+      const result = await uploadWorkoutToStrava(
+        resolvedWorkout,
+        stravaAccessToken,
+        (statusText) => {
+          setUploadProgressMsg(statusText);
+        }
+      );
       setUploadStatus(result);
       if (result.success && onSaveToHistory) {
         onSaveToHistory(resolvedWorkout);
@@ -134,6 +143,7 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
       });
     } finally {
       setIsUploading(false);
+      setUploadProgressMsg('');
     }
   };
 
@@ -280,26 +290,59 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
           <span className="text-amber-400 font-bold">{fitFileName}</span>
         </div>
 
+        {/* Strava Upload In-Flight Progress */}
+        {isUploading && (
+          <div className="p-3.5 rounded-2xl border border-amber-500/40 bg-amber-950/30 text-xs space-y-2 animate-pulse">
+            <div className="flex items-center gap-2 text-amber-400 font-bold">
+              <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+              <span>Strava Upload & Processing</span>
+            </div>
+            <p className="text-[11px] text-amber-200/90 leading-relaxed font-mono">
+              {uploadProgressMsg || 'Uploading workout to Strava...'}
+            </p>
+            <div className="text-[10px] text-slate-400">
+              Strava upload registered. Checking status after 4s, rechecking every 4s until ready.
+            </div>
+          </div>
+        )}
+
         {/* Strava Upload Feedback */}
-        {uploadStatus && (
+        {!isUploading && uploadStatus && (
           <div
             className={`p-3.5 rounded-2xl border text-xs space-y-2.5 ${
               uploadStatus.success
                 ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300'
-                : 'bg-amber-950/40 border-amber-800/80 text-amber-300'
+                : 'bg-rose-950/40 border-rose-800/80 text-rose-300'
             }`}
           >
             <div className="flex items-center gap-2">
+              {uploadStatus.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              )}
               <span className="font-bold text-white">
-                {uploadStatus.success ? 'Upload Initiated!' : 'Upload Notice'}
+                {uploadStatus.success ? 'Activity Ready on Strava!' : 'Upload Error'}
               </span>
             </div>
 
-            <p className="text-[11px] text-slate-300 leading-relaxed">
+            <p className="text-[11px] text-slate-200 leading-relaxed">
               {uploadStatus.success
-                ? `Activity queued with Strava. Upload ID: ${uploadStatus.uploadId || 'processing'}.`
-                : uploadStatus.error || 'Direct browser upload encountered CORS or authorization limitations.'}
+                ? uploadStatus.status || 'Your activity has been processed and is ready.'
+                : uploadStatus.error || 'There was an error processing your activity on Strava.'}
             </p>
+
+            {uploadStatus.success && uploadStatus.activityId && (
+              <a
+                href={`https://www.strava.com/activities/${uploadStatus.activityId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+              >
+                <span>View Activity on Strava (ID: {uploadStatus.activityId})</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
 
             {/* Fallback button if failed */}
             {!uploadStatus.success && (
@@ -325,10 +368,14 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
             onClick={handleDirectStravaUpload}
             className="w-full py-3 px-4 rounded-2xl bg-[#FC5200] hover:bg-[#e04900] active:scale-[0.99] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#FC5200]/25 transition-all disabled:opacity-50 cursor-pointer"
           >
-            <UploadCloud className="w-4 h-4 stroke-[2.5]" />
+            {isUploading ? (
+              <RefreshCw className="w-4 h-4 animate-spin stroke-[2.5]" />
+            ) : (
+              <UploadCloud className="w-4 h-4 stroke-[2.5]" />
+            )}
             <span>
               {isUploading
-                ? 'Uploading to Strava...'
+                ? uploadProgressMsg || 'Checking Strava Status...'
                 : stravaAccessToken
                 ? 'Sync Directly to Connected Strava'
                 : 'Connect Strava & Upload'}
