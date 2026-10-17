@@ -596,13 +596,17 @@ export default function App() {
   // Handle incoming Strava OAuth redirect code (for GitHub Pages static hosting or mobile PWA)
   useEffect(() => {
     checkAndProcessOAuthRedirect().then((result) => {
-      if (result.handled && result.success && result.token) {
-        setStravaToken(result.token);
-        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, result.token);
-        if (result.athlete?.firstname) {
-          const name = `${result.athlete.firstname} ${result.athlete.lastname || ''}`.trim();
-          setAthleteName(name);
-          localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
+      if (result.handled) {
+        if (result.success && result.token) {
+          setStravaToken(result.token);
+          localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, result.token);
+          if (result.athlete?.firstname) {
+            const name = `${result.athlete.firstname} ${result.athlete.lastname || ''}`.trim();
+            setAthleteName(name);
+            localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
+          }
+        } else if (result.error) {
+          setIsStravaSettingsOpen(true);
         }
       }
     });

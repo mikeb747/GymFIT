@@ -36,8 +36,13 @@ export function getStravaRedirectUri(): string {
   if (typeof window === 'undefined') return 'http://localhost:3000/auth/callback';
   const isGitHubPages = window.location.hostname.includes('github.io');
   if (isGitHubPages) {
-    // GitHub Pages static deployment
-    return 'https://mikeb747.github.io/IronFIT/';
+    // Detect GitHub Pages repo path dynamically (e.g. /GymFIT/)
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    let repoName = 'GymFIT';
+    if (pathSegments.length > 0 && pathSegments[0].toLowerCase() !== 'ironfit') {
+      repoName = pathSegments[0];
+    }
+    return `${window.location.origin}/${repoName}/`;
   }
   // Local or Cloud Run preview environment
   return `${window.location.origin}/auth/callback`;
@@ -74,6 +79,26 @@ export interface StravaTokenResponse {
   };
 }
 
+export function saveStravaCredentials(clientId: string, clientSecret: string): void {
+  if (typeof window === 'undefined') return;
+  if (clientId.trim()) {
+    localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_ID, clientId.trim());
+  } else {
+    localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_ID);
+  }
+  if (clientSecret.trim()) {
+    localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_SECRET, clientSecret.trim());
+  } else {
+    localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_SECRET);
+  }
+}
+
+export function resetStravaCredentials(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_ID);
+  localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.CLIENT_SECRET);
+}
+
 /**
  * Exchange an OAuth authorization code for an Access Token
  * Works both via full-stack Express server and directly via Strava CORS endpoint on static GitHub Pages.
@@ -101,9 +126,10 @@ export async function exchangeStravaCode(
     }),
   });
 
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || data.error || `Strava authorization exchange failed (${response.status})`);
+    const errorDetails = data.errors ? JSON.stringify(data.errors) : '';
+    throw new Error(data.message || data.error || errorDetails || `Strava authorization exchange failed (${response.status})`);
   }
 
   // Persist tokens

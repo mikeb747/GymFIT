@@ -124,7 +124,7 @@ const handleOAuthCallback = async (req: express.Request, res: express.Response) 
           <div style="max-width: 400px; margin: auto; padding: 24px; background: #181b26; border-radius: 16px; border: 1px solid #262b3d;">
             <div style="font-size: 32px; margin-bottom: 12px;">⚡</div>
             <h2 style="color: #fc5200; margin: 0 0 8px;">Strava Connected!</h2>
-            <p style="color: #94a3b8; font-size: 14px;">Closing window and returning to IronFIT...</p>
+            <p style="color: #94a3b8; font-size: 14px;">Closing window and returning to GymFIT...</p>
           </div>
           <script>
             try {
@@ -180,12 +180,12 @@ app.post('/api/strava/upload', async (req, res) => {
 
     const fitBuffer = Buffer.from(fitBase64, 'base64');
     const fitBlob = new Blob([fitBuffer], { type: 'application/octet-stream' });
-    const targetFileName = fileName || `${(name || 'IronFIT_Workout').replace(/\s+/g, '_')}.fit`;
+    const targetFileName = fileName || `${(name || 'GymFIT_Workout').replace(/\s+/g, '_')}.fit`;
 
     const formData = new FormData();
     formData.append('file', fitBlob, targetFileName);
     formData.append('name', name || 'Strength & Conditioning');
-    formData.append('description', description || 'Logged via IronFIT');
+    formData.append('description', description || 'Logged via GymFIT');
     formData.append('data_type', 'fit');
     formData.append('sport_type', 'WeightTraining');
     formData.append('activity_type', 'weight_training');

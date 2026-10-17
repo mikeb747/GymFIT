@@ -22,8 +22,16 @@
   </head>
   <body>
     <script>
-      // Normalizes GitHub Pages path to include trailing slash (/GymFIT/ or /IronFIT/) so PWA manifest scope is isolated
-      var repoMatch = window.location.pathname.match(/^\/(GymFIT|IronFIT)$/i);
+      // 1. Seamless forward from legacy /IronFIT/ to /GymFIT/ preserving OAuth query params (?code=...) and hash
+      if (window.location.pathname.toLowerCase().startsWith('/ironfit')) {
+        var queryAndHash = window.location.search + window.location.hash;
+        var targetPath = window.location.pathname.replace(/^\/ironfit/i, '/GymFIT');
+        if (!targetPath.endsWith('/')) targetPath += '/';
+        window.location.replace(window.location.origin + targetPath + queryAndHash);
+      }
+
+      // 2. Normalizes GitHub Pages path to include trailing slash (/GymFIT/) so PWA manifest scope is isolated
+      var repoMatch = window.location.pathname.match(/^\/(GymFIT)$/i);
       if (window.location.hostname.endsWith('github.io') && repoMatch) {
         window.location.replace('/' + repoMatch[1] + '/' + window.location.search + window.location.hash);
       }
