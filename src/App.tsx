@@ -179,11 +179,19 @@ export default function App() {
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.TEMPLATES);
+      const migratedV113 = localStorage.getItem('gymfit_v113_default_unfavorited');
       if (stored) {
         const parsed: WorkoutTemplate[] = JSON.parse(stored);
         const existingIds = new Set(parsed.map((t) => t.id));
         const missingInitial = INITIAL_TEMPLATES.filter((initTpl) => !existingIds.has(initTpl.id));
-        const combined = [...parsed, ...missingInitial];
+        let combined = [...parsed, ...missingInitial];
+        if (!migratedV113) {
+          localStorage.setItem('gymfit_v113_default_unfavorited', 'true');
+          combined = combined.map((template) => {
+            const isInitial = INITIAL_TEMPLATES.some((init) => init.id === template.id);
+            return isInitial ? { ...template, isFavorite: false } : template;
+          });
+        }
         return combined.map((template) => ({
           ...template,
           exerciseIds: template.exerciseIds
@@ -191,6 +199,7 @@ export default function App() {
             .filter((id): id is number => id !== undefined),
         }));
       }
+      localStorage.setItem('gymfit_v113_default_unfavorited', 'true');
       return INITIAL_TEMPLATES;
     } catch {
       return INITIAL_TEMPLATES;
@@ -1522,7 +1531,7 @@ export default function App() {
               GymFIT Strength & Conditioning Tracker
             </span>
             <span className="text-xs font-mono text-slate-500 select-none">
-              v1.1.2
+              v1.1.3
             </span>
           </div>
         </main>

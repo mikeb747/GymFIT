@@ -29,10 +29,18 @@ export const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
     };
   }, [isOpen]);
 
-  const categories = useMemo(
-    () => [...new Set(exercises.flatMap((exercise) => exercise.categories))].sort(),
-    [exercises]
-  );
+  const categories = useMemo(() => {
+    const rawCategories = [...new Set(exercises.flatMap((exercise) => exercise.categories))];
+    const priority = ['Legs', 'Shoulders', 'Shoulder'];
+    return rawCategories.sort((a, b) => {
+      const aIdx = priority.findIndex((p) => p.toLowerCase() === a.toLowerCase());
+      const bIdx = priority.findIndex((p) => p.toLowerCase() === b.toLowerCase());
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [exercises]);
 
   if (!isOpen) return null;
 
