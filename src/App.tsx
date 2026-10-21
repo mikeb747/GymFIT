@@ -23,9 +23,15 @@ import { StravaSettingsModal } from './components/StravaSettingsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
+import { StravaActivitiesTab } from './components/StravaActivitiesTab';
 import { downloadFitFile } from './utils/fitGenerator';
 import { checkAndProcessOAuthRedirect } from './utils/stravaOAuth';
 import { uploadWorkoutToStrava } from './utils/stravaUpload';
+import {
+  fetchStravaAthleteActivities,
+  getCachedStravaActivities,
+  StravaActivity,
+} from './utils/stravaActivities';
 import { getDefaultActivityName } from './utils/activityName';
 import {
   Dumbbell,
@@ -262,8 +268,11 @@ export default function App() {
   });
 
   // Modals & UI View states
-  const [activeTab, setActiveTab] = useState<'workouts' | 'history'>('workouts');
+  const [activeTab, setActiveTab] = useState<'workouts' | 'history' | 'strava'>('workouts');
   const [templateFilter, setTemplateFilter] = useState<'favorites' | 'all'>('favorites');
+  const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => getCachedStravaActivities());
+  const [isLoadingStravaActivities, setIsLoadingStravaActivities] = useState(false);
+  const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
   const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -637,6 +646,27 @@ export default function App() {
     });
   }, []);
 
+  const refreshStravaActivities = async () => {
+    if (!stravaToken) return;
+    setIsLoadingStravaActivities(true);
+    setStravaActivitiesError(null);
+    try {
+      const data = await fetchStravaAthleteActivities(stravaToken);
+      setStravaActivities(data);
+    } catch (err: any) {
+      setStravaActivitiesError(err.message || 'Failed to fetch activities from Strava');
+    } finally {
+      setIsLoadingStravaActivities(false);
+    }
+  };
+
+  // Auto-fetch Strava activities when switching to 'strava' tab if connected and empty
+  useEffect(() => {
+    if (activeTab === 'strava' && stravaToken && stravaActivities.length === 0) {
+      refreshStravaActivities();
+    }
+  }, [activeTab, stravaToken]);
+
   // -------------------------------------------------------------
   // Exercise and Workout Handlers
   // -------------------------------------------------------------
@@ -940,9 +970,14 @@ export default function App() {
         setAthleteName(name);
         localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
       }
+      fetchStravaAthleteActivities(token)
+        .then((data) => setStravaActivities(data))
+        .catch(() => {});
     } else {
       localStorage.removeItem(STORAGE_KEYS.STRAVA_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.STRAVA_ATHLETE);
+      localStorage.removeItem('gymfit_strava_activities_cache');
+      setStravaActivities([]);
       setAthleteName(null);
     }
   };
@@ -1216,59 +1251,77 @@ export default function App() {
           </div>
 
           {/* Navigation Sub-Tabs */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveTab('workouts')}
-                className={`text-sm font-bold pb-2 transition-colors relative ${
-                  activeTab === 'workouts' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>Workout Routines</span>
-                {activeTab === 'workouts' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
-                )}
-              </button>
+          {(() => {
+            const isComfortable = displayDensity === 'comfortable';
+            const fullTextClass = isComfortable ? 'hidden lg:inline' : 'hidden md:inline';
+            const shortTextClass = isComfortable ? 'lg:hidden' : 'md:hidden';
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('history')}
-                className={`text-sm font-bold pb-2 transition-colors relative ${
-                  activeTab === 'history' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>Completed Workouts ({completedWorkouts.length})</span>
-                {activeTab === 'history' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
-                )}
-              </button>
-            </div>
+            return (
+              <div className="flex items-center gap-2 sm:gap-4 border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar">
+                {/* Tab 1: Workout Routines */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('workouts')}
+                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
+                    activeTab === 'workouts' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className={fullTextClass}>Workout Routines ({templates.length})</span>
+                  <span className={shortTextClass}>Routines ({templates.length})</span>
+                  {activeTab === 'workouts' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
+                  )}
+                </button>
 
-            {activeTab === 'workouts' && (
-              <button
-                type="button"
-                onClick={handleStartCreateRoutine}
-                className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span>New Routine</span>
-              </button>
-            )}
-          </div>
+                {/* Tab 2: Completed Workouts */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
+                    activeTab === 'history' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className={fullTextClass}>Completed Workouts ({completedWorkouts.length})</span>
+                  <span className={shortTextClass}>Completed ({completedWorkouts.length})</span>
+                  {activeTab === 'history' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
+                  )}
+                </button>
+
+                {/* Tab 3: Strava Activities */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('strava')}
+                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
+                    activeTab === 'strava' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className={fullTextClass}>
+                    Strava Activities{stravaActivities.length > 0 ? ` (${stravaActivities.length})` : ''}
+                  </span>
+                  <span className={shortTextClass}>
+                    Activities{stravaActivities.length > 0 ? ` (${stravaActivities.length})` : ''}
+                  </span>
+                  {activeTab === 'strava' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
+                  )}
+                </button>
+              </div>
+            );
+          })()}
 
           {/* ======================================================= */}
           {/* TAB 1: WORKOUT SELECTOR (FAVORITED BY DEFAULT!) */}
           {/* ======================================================= */}
           {activeTab === 'workouts' && (
             <div className="space-y-4">
-              {/* Filter: Defaults strictly to Favorited Routines */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+              {/* Filter: Defaults strictly to Favorited Routines & +New Routine */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center flex-wrap gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
                   <button
                     type="button"
                     onClick={() => setTemplateFilter('favorites')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
                       templateFilter === 'favorites'
                         ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                         : 'text-slate-400 hover:text-white'
@@ -1284,13 +1337,22 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setTemplateFilter('all')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                       templateFilter === 'all'
                         ? 'bg-slate-800 text-white font-bold'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     <span>All Routines ({templates.length})</span>
+                  </button>
+                  <div className="h-4 w-px bg-slate-800 my-auto hidden sm:block" />
+                  <button
+                    type="button"
+                    onClick={handleStartCreateRoutine}
+                    className="px-3 py-1.5 text-xs font-bold text-amber-400 hover:text-amber-300 hover:bg-slate-800/60 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                    <span>New Routine</span>
                   </button>
                 </div>
               </div>
@@ -1523,6 +1585,21 @@ export default function App() {
                 ))
               )}
             </div>
+          )}
+
+          {/* ======================================================= */}
+          {/* TAB 3: STRAVA ACTIVITIES */}
+          {/* ======================================================= */}
+          {activeTab === 'strava' && (
+            <StravaActivitiesTab
+              stravaToken={stravaToken}
+              athleteName={athleteName}
+              activities={stravaActivities}
+              loading={isLoadingStravaActivities}
+              error={stravaActivitiesError}
+              onRefresh={refreshStravaActivities}
+              onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
+            />
           )}
 
           {/* Main Dashboard Footer Tag */}

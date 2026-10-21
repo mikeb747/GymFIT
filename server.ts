@@ -241,6 +241,37 @@ app.get('/api/strava/uploads/:uploadId', async (req, res) => {
   }
 });
 
+// Fetch athlete activities from Strava
+app.get('/api/strava/activities', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+    const page = req.query.page || 1;
+    const perPage = req.query.per_page || 30;
+
+    const stravaRes = await fetch(
+      `https://www.strava.com/api/v3/athlete/activities?page=${page}&per_page=${perPage}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: authHeader,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const data = await stravaRes.json();
+    if (!stravaRes.ok) {
+      return res.status(stravaRes.status).json(data);
+    }
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava activities' });
+  }
+});
+
 // Token refresh endpoint if user provides refresh token
 app.post('/api/strava/refresh', async (req, res) => {
   try {
