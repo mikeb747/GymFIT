@@ -321,7 +321,9 @@ export default function App() {
     return saved;
   });
   const [brandSubtitle, setBrandSubtitle] = useState(() => {
-    return localStorage.getItem(STORAGE_KEYS.BRAND_SUBTITLE) || 'Strength & Strava FIT Uploader';
+    const saved = localStorage.getItem(STORAGE_KEYS.BRAND_SUBTITLE);
+    if (!saved || saved === 'Strength & Strava FIT Uploader') return 'Workout Log & Strava Uploader';
+    return saved;
   });
   const [isEditingBrandModal, setIsEditingBrandModal] = useState(false);
   const [tempBrandTitle, setTempBrandTitle] = useState(brandTitle);
@@ -356,7 +358,7 @@ export default function App() {
 
   const handleSaveBrand = () => {
     const finalTitle = tempBrandTitle.trim() || 'GymFIT';
-    const finalSub = tempBrandSubtitle.trim() || 'Strength & Strava FIT Uploader';
+    const finalSub = tempBrandSubtitle.trim() || 'Workout Log & Strava Uploader';
     setBrandTitle(finalTitle);
     setBrandSubtitle(finalSub);
     localStorage.setItem(STORAGE_KEYS.BRAND_TITLE, finalTitle);
@@ -366,7 +368,7 @@ export default function App() {
 
   const handleResetBrand = () => {
     setBrandTitle('GymFIT');
-    setBrandSubtitle('Strength & Strava FIT Uploader');
+    setBrandSubtitle('Workout Log & Strava Uploader');
     localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
     localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
     setIsEditingBrandModal(false);
@@ -374,16 +376,20 @@ export default function App() {
 
   // Studio Hero Banner Text Customization (600ms Long Press)
   const [heroEyebrow, setHeroEyebrow] = useState(() => {
-    return localStorage.getItem(STORAGE_KEYS.HERO_EYEBROW) || 'Strength Training Studio';
+    const saved = localStorage.getItem(STORAGE_KEYS.HERO_EYEBROW);
+    if (!saved || saved === 'Strength Training Studio') return 'LOG · PUBLISH · REPEAT';
+    return saved;
   });
   const [heroHeading, setHeroHeading] = useState(() => {
     return localStorage.getItem(STORAGE_KEYS.HERO_HEADING) || 'Ready to Train?';
   });
   const [heroDescription, setHeroDescription] = useState(() => {
-    return (
-      localStorage.getItem(STORAGE_KEYS.HERO_DESCRIPTION) ||
-      'Log sets with digit drum precision, dual continuous & lap timers, and generate authentic Strava .FIT activity files.'
-    );
+    const saved = localStorage.getItem(STORAGE_KEYS.HERO_DESCRIPTION);
+    const oldDefault = 'Log sets with digit drum precision, dual continuous & lap timers, and generate authentic Strava .FIT activity files.';
+    if (!saved || saved === oldDefault) {
+      return 'Log every set as you train, starting from last session’s weights. Publish to Strava with the exercise list and muscle map displayed.';
+    }
+    return saved;
   });
   const [isEditingHeroModal, setIsEditingHeroModal] = useState(false);
   const [tempHeroEyebrow, setTempHeroEyebrow] = useState(heroEyebrow);
@@ -418,11 +424,11 @@ export default function App() {
   };
 
   const handleSaveHeroText = () => {
-    const finalEyebrow = tempHeroEyebrow.trim() || 'Strength Training Studio';
+    const finalEyebrow = tempHeroEyebrow.trim() || 'LOG · PUBLISH · REPEAT';
     const finalHeading = tempHeroHeading.trim() || 'Ready to Train?';
     const finalDesc =
       tempHeroDescription.trim() ||
-      'Log sets with digit drum precision, dual continuous & lap timers, and generate authentic Strava .FIT activity files.';
+      'Log every set as you train, starting from last session’s weights. Publish to Strava with the exercise list and muscle map displayed.';
     setHeroEyebrow(finalEyebrow);
     setHeroHeading(finalHeading);
     setHeroDescription(finalDesc);
@@ -433,10 +439,10 @@ export default function App() {
   };
 
   const handleResetHeroText = () => {
-    const defaultEyebrow = 'Strength Training Studio';
+    const defaultEyebrow = 'LOG · PUBLISH · REPEAT';
     const defaultHeading = 'Ready to Train?';
     const defaultDesc =
-      'Log sets with digit drum precision, dual continuous & lap timers, and generate authentic Strava .FIT activity files.';
+      'Log every set as you train, starting from last session’s weights. Publish to Strava with the exercise list and muscle map displayed.';
     setHeroEyebrow(defaultEyebrow);
     setHeroHeading(defaultHeading);
     setHeroDescription(defaultDesc);
@@ -1032,13 +1038,15 @@ export default function App() {
               type="button"
               onClick={() => setIsStravaSettingsOpen(true)}
               title={stravaToken ? 'Strava Connected - click to manage' : 'Connect Strava'}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
+              className={`h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
                 stravaToken
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/80 shadow-emerald-600/20'
-                  : 'bg-sky-500 hover:bg-sky-400 text-white border border-sky-400/80 shadow-sky-500/20'
+                  ? 'bg-transparent text-emerald-400 hover:text-emerald-300 border-0 shadow-none'
+                  : theme === 'light'
+                  ? 'bg-sky-100 hover:bg-sky-200 text-sky-950 border border-sky-700 shadow-sm'
+                  : 'bg-blue-950 hover:bg-blue-900 text-blue-200 border border-blue-700 shadow-sm'
               }`}
             >
-              <StravaIcon className="w-4 h-4 rounded-full shadow-xs" />
+              <StravaIcon className="w-[27px] h-[27px] rounded-full shadow-xs shrink-0" />
               <span>{stravaToken ? 'Connected' : 'Connect'}</span>
             </button>
 
@@ -1250,65 +1258,79 @@ export default function App() {
             </div>
           </div>
 
-          {/* Navigation Sub-Tabs */}
-          {(() => {
-            const isComfortable = displayDensity === 'comfortable';
-            const fullTextClass = isComfortable ? 'hidden lg:inline' : 'hidden md:inline';
-            const shortTextClass = isComfortable ? 'lg:hidden' : 'md:hidden';
+          {/* Navigation Tabs - Full Width Segmented Control */}
+          <div className="w-full grid grid-cols-3 gap-1.5 p-1.5 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner">
+            {/* Tab 1: Workout Routines */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('workouts')}
+              className={`py-2.5 px-1 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                activeTab === 'workouts'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+              }`}
+            >
+              <span className="hidden sm:inline">Workout Routines</span>
+              <span className="sm:hidden">Routines</span>
+              <span
+                className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${
+                  activeTab === 'workouts'
+                    ? 'bg-slate-950/25 text-slate-950 font-black'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {templates.length}
+              </span>
+            </button>
 
-            return (
-              <div className="flex items-center gap-2 sm:gap-4 border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar">
-                {/* Tab 1: Workout Routines */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('workouts')}
-                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
-                    activeTab === 'workouts' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
+            {/* Tab 2: Completed Workouts */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`py-2.5 px-1 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                activeTab === 'history'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+              }`}
+            >
+              <span className="hidden sm:inline">Completed Workouts</span>
+              <span className="sm:hidden">Completed</span>
+              <span
+                className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${
+                  activeTab === 'history'
+                    ? 'bg-slate-950/25 text-slate-950 font-black'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {completedWorkouts.length}
+              </span>
+            </button>
+
+            {/* Tab 3: Strava Activities */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('strava')}
+              className={`py-2.5 px-1 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+                activeTab === 'strava'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+              }`}
+            >
+              <span className="hidden sm:inline">Strava Activities</span>
+              <span className="sm:hidden">Activities</span>
+              {stravaActivities.length > 0 && (
+                <span
+                  className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded-full font-mono ${
+                    activeTab === 'strava'
+                      ? 'bg-slate-950/25 text-slate-950 font-black'
+                      : 'bg-slate-800 text-slate-400'
                   }`}
                 >
-                  <span className={fullTextClass}>Workout Routines ({templates.length})</span>
-                  <span className={shortTextClass}>Routines ({templates.length})</span>
-                  {activeTab === 'workouts' && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
-                  )}
-                </button>
-
-                {/* Tab 2: Completed Workouts */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('history')}
-                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
-                    activeTab === 'history' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className={fullTextClass}>Completed Workouts ({completedWorkouts.length})</span>
-                  <span className={shortTextClass}>Completed ({completedWorkouts.length})</span>
-                  {activeTab === 'history' && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
-                  )}
-                </button>
-
-                {/* Tab 3: Strava Activities */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('strava')}
-                  className={`text-xs sm:text-sm font-bold pb-2 transition-colors relative whitespace-nowrap shrink-0 cursor-pointer ${
-                    activeTab === 'strava' ? 'text-amber-400' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className={fullTextClass}>
-                    Strava Activities{stravaActivities.length > 0 ? ` (${stravaActivities.length})` : ''}
-                  </span>
-                  <span className={shortTextClass}>
-                    Activities{stravaActivities.length > 0 ? ` (${stravaActivities.length})` : ''}
-                  </span>
-                  {activeTab === 'strava' && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400 rounded-full" />
-                  )}
-                </button>
-              </div>
-            );
-          })()}
+                  {stravaActivities.length}
+                </span>
+              )}
+            </button>
+          </div>
 
           {/* ======================================================= */}
           {/* TAB 1: WORKOUT SELECTOR (FAVORITED BY DEFAULT!) */}
@@ -1636,7 +1658,7 @@ export default function App() {
         }}
         onResetBrand={() => {
           setBrandTitle('GymFIT');
-          setBrandSubtitle('Strength & Strava FIT Uploader');
+          setBrandSubtitle('Workout Log & Strava Uploader');
           localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
           localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
         }}
@@ -2060,7 +2082,7 @@ export default function App() {
                   type="text"
                   value={tempHeroEyebrow}
                   onChange={(e) => setTempHeroEyebrow(e.target.value)}
-                  placeholder="e.g. Strength Training Studio"
+                  placeholder="e.g. LOG · PUBLISH · REPEAT"
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-amber-400 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-amber-400"
                 />
               </div>
@@ -2086,7 +2108,7 @@ export default function App() {
                   rows={3}
                   value={tempHeroDescription}
                   onChange={(e) => setTempHeroDescription(e.target.value)}
-                  placeholder="e.g. Log sets with digit drum precision..."
+                  placeholder="e.g. Log every set as you train, starting from last session’s weights..."
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-400 resize-none leading-relaxed"
                 />
               </div>
