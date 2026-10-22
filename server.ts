@@ -8,8 +8,32 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Process safety handlers
+process.on('uncaughtException', (err) => {
+  console.error('[GymFIT Server] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[GymFIT Server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// Parse port & host from process.env or CLI flags (e.g. tsx server.ts --port 3000 --host 0.0.0.0)
+let parsedPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+let parsedHost = '0.0.0.0';
+
+for (let i = 2; i < process.argv.length; i++) {
+  if (process.argv[i] === '--port' && process.argv[i + 1]) {
+    const val = parseInt(process.argv[i + 1], 10);
+    if (!isNaN(val)) parsedPort = val;
+  }
+  if (process.argv[i] === '--host' && process.argv[i + 1]) {
+    parsedHost = process.argv[i + 1];
+  }
+}
+
+const PORT = parsedPort;
+const HOST = parsedHost;
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json({ limit: '15mb' }));
@@ -250,9 +274,18 @@ app.get('/api/strava/activities', async (req, res) => {
     }
     const page = req.query.page || 1;
     const perPage = req.query.per_page || 30;
+    const before = req.query.before;
+    const after = req.query.after;
+
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+    });
+    if (before) params.set('before', String(before));
+    if (after) params.set('after', String(after));
 
     const stravaRes = await fetch(
-      `https://www.strava.com/api/v3/athlete/activities?page=${page}&per_page=${perPage}`,
+      `https://www.strava.com/api/v3/athlete/activities?${params.toString()}`,
       {
         method: 'GET',
         headers: {
@@ -372,9 +405,16 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`IronFIT Server listening on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`GymFIT Server listening on http://${HOST}:${PORT}`);
+  });
+
+  server.on('error', (err: any) => {
+    console.error('[GymFIT Server] Server listen error:', err);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[GymFIT Server] Failed to initialize server:', err);
+});
+

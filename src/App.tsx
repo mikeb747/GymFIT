@@ -35,6 +35,8 @@ import { uploadWorkoutToStrava } from './utils/stravaUpload';
 import {
   fetchStravaAthleteActivities,
   fetchStravaActivityDetails,
+  syncStravaActivitiesDelta,
+  fetchOlderStravaActivities,
   isStravaAuthorizationError,
   getCachedStravaActivities,
   getCachedStravaActivitiesSnapshot,
@@ -43,9 +45,20 @@ import {
   ensureStravaActivityRecord,
   saveCachedStravaNewActivityIds,
   saveStravaActivityDetails,
+  markStravaActivityPublishedToGoogleSheets,
   StravaActivity,
   StravaActivityDetailsRecord,
 } from './utils/stravaActivities';
+import {
+  initGoogleAuth,
+  signInWithGoogle,
+  signOutGoogle,
+  getGoogleAccessToken,
+} from './utils/googleAuth';
+import {
+  checkGoogleSheetsReachability,
+  getCachedSpreadsheetId,
+} from './utils/googleSheets';
 import { getDefaultActivityName } from './utils/activityName';
 import {
   Dumbbell,
@@ -292,7 +305,17 @@ export default function App() {
   >({});
   const activityDetailsInProgress = useRef(new Set<string>());
   const [isLoadingStravaActivities, setIsLoadingStravaActivities] = useState(false);
+  const [isLoadingMoreStrava, setIsLoadingMoreStrava] = useState(false);
+  const [hasMoreStrava, setHasMoreStrava] = useState(true);
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
+
+  // Google Sheets integration state
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [googleUserEmail, setGoogleUserEmail] = useState<string | null>(null);
+  const [googleSheetUrl, setGoogleSheetUrl] = useState<string | null>(() => {
+    const id = getCachedSpreadsheetId();
+    return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : null;
+  });
   const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
   const [isStravaSettingsOpen, setIsStravaSettingsOpen] = useState(false);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -705,13 +728,69 @@ export default function App() {
     }
   }, [stravaToken]);
 
+  // Google Auth initialization listener
+  useEffect(() => {
+    const unsubscribe = initGoogleAuth(
+      (user, token) => {
+        setIsGoogleConnected(true);
+        setGoogleUserEmail(user.email || null);
+        const sheetId = getCachedSpreadsheetId();
+        if (sheetId) {
+          setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${sheetId}/edit`);
+        }
+      },
+      () => {
+        setIsGoogleConnected(false);
+        setGoogleUserEmail(null);
+      }
+    );
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const { user } = await signInWithGoogle();
+      setIsGoogleConnected(true);
+      setGoogleUserEmail(user.email || null);
+      const sheetId = getCachedSpreadsheetId();
+      if (sheetId) {
+        setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${sheetId}/edit`);
+      }
+    } catch (err: any) {
+      console.error('Google Sign-in failed:', err);
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    await signOutGoogle();
+    setIsGoogleConnected(false);
+    setGoogleUserEmail(null);
+  };
+
+  const handleActivityPublished = (activityId: string) => {
+    setStravaActivityDetails((prev) => {
+      const existing = prev[activityId] || { id: activityId };
+      return {
+        ...prev,
+        [activityId]: {
+          ...existing,
+          googleDrivePublishedAt: new Date().toISOString(),
+        },
+      };
+    });
+    const sheetId = getCachedSpreadsheetId();
+    if (sheetId) {
+      setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${sheetId}/edit`);
+    }
+  };
+
   const refreshStravaActivities = async (accessToken: string | null = stravaToken) => {
     if (!accessToken) return;
     setIsLoadingStravaActivities(true);
     setStravaActivitiesError(null);
     try {
-      const previousSnapshot = getCachedStravaActivitiesSnapshot();
-      const previousIds = new Set((previousSnapshot || []).map((activity) => String(activity.id)));
       let currentToken = accessToken;
       let tokenWasRefreshed = false;
       const tokenExpiresAt = Number(localStorage.getItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT) || 0);
@@ -724,36 +803,56 @@ export default function App() {
 
       let data: StravaActivity[];
       try {
-        data = await fetchStravaAthleteActivities(currentToken);
+        data = await syncStravaActivitiesDelta(currentToken);
       } catch (err) {
         if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
         currentToken = await refreshStravaAccessToken();
         setStravaToken(currentToken);
         localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
-        data = await fetchStravaAthleteActivities(currentToken);
+        data = await syncStravaActivitiesDelta(currentToken);
       }
 
-      const newlyDetectedIds = previousSnapshot === null
-        ? []
-        : data
-            .filter((activity) => !previousIds.has(String(activity.id)))
-            .map((activity) => String(activity.id));
-      const pendingIds = new Set([
-        ...getCachedStravaNewActivityIds(),
-        ...newlyDetectedIds,
-      ]);
-      const pendingRecords = await Promise.all(
-        [...pendingIds].map((id) => getCachedStravaActivityRecord(id))
-      );
-      const newIds = [...pendingIds].filter((id, index) => !pendingRecords[index]?.googleDrivePublishedAt);
-      saveCachedStravaNewActivityIds(newIds);
       setStravaActivities(data);
-      setNewStravaActivityIds(newIds);
-      setStravaActivityDetailStatus({});
+      // Pre-load published records from IndexedDB so badges display immediately
+      const records = await Promise.all(
+        data.map((act) => getCachedStravaActivityRecord(act.id))
+      );
+      const detailMap: Record<string, StravaActivityDetailsRecord> = {};
+      records.forEach((rec) => {
+        if (rec) detailMap[rec.id] = rec;
+      });
+      setStravaActivityDetails((prev) => ({ ...prev, ...detailMap }));
     } catch (err: any) {
-      setStravaActivitiesError(err.message || 'Failed to fetch activities from Strava');
+      setStravaActivitiesError(err.message || 'Failed to sync activities from Strava');
     } finally {
       setIsLoadingStravaActivities(false);
+    }
+  };
+
+  const handleLoadMoreStravaActivities = async () => {
+    if (!stravaToken || isLoadingMoreStrava || !hasMoreStrava || stravaActivities.length === 0) return;
+    setIsLoadingMoreStrava(true);
+    try {
+      const oldest = stravaActivities[stravaActivities.length - 1];
+      const oldestEpoch = Math.floor(new Date(oldest.start_date).getTime() / 1000);
+
+      const result = await fetchOlderStravaActivities(stravaToken, oldestEpoch, 50);
+      setStravaActivities(result.activities);
+      setHasMoreStrava(result.hasMore);
+
+      // Pre-load cached records for newly added activities
+      const records = await Promise.all(
+        result.activities.map((act) => getCachedStravaActivityRecord(act.id))
+      );
+      const detailMap: Record<string, StravaActivityDetailsRecord> = {};
+      records.forEach((rec) => {
+        if (rec) detailMap[rec.id] = rec;
+      });
+      setStravaActivityDetails((prev) => ({ ...prev, ...detailMap }));
+    } catch (err: any) {
+      setStravaActivitiesError(err.message || 'Failed to load older activities');
+    } finally {
+      setIsLoadingMoreStrava(false);
     }
   };
 
@@ -764,49 +863,30 @@ export default function App() {
     }
   }, [activeTab, stravaToken]);
 
+  // Pre-load existing IndexedDB records on initial load
   useEffect(() => {
-    if (!stravaToken || stravaActivities.length === 0) return;
+    if (stravaActivities.length === 0) return;
     let cancelled = false;
 
-    const loadCachedDetailsAndFetchNew = async () => {
+    const loadCachedRecords = async () => {
       try {
         const records = await Promise.all(
           stravaActivities.map((activity) => getCachedStravaActivityRecord(activity.id))
         );
         if (cancelled) return;
-
         const cachedDetails: Record<string, StravaActivityDetailsRecord> = {};
         records.forEach((record) => {
           if (record) cachedDetails[record.id] = record;
         });
         setStravaActivityDetails((current) => ({ ...current, ...cachedDetails }));
-
-        const missingNewIds = newStravaActivityIds.filter((id) => !cachedDetails[id]?.activity);
-        for (let index = 0; index < missingNewIds.length; index += 3) {
-          if (cancelled) return;
-          await Promise.all(
-            missingNewIds
-              .slice(index, index + 3)
-              .map((id) => fetchAndStoreStravaActivityDetails(id))
-          );
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Could not load saved Strava activity details';
-        setStravaActivityDetailStatus((current) => {
-          const next = { ...current };
-          newStravaActivityIds.forEach((id) => {
-            next[id] = { loading: false, error: message };
-          });
-          return next;
-        });
-      }
+      } catch {}
     };
 
-    void loadCachedDetailsAndFetchNew();
+    void loadCachedRecords();
     return () => {
       cancelled = true;
     };
-  }, [stravaActivities, newStravaActivityIds, stravaToken, fetchAndStoreStravaActivityDetails]);
+  }, [stravaActivities]);
 
   // -------------------------------------------------------------
   // Exercise and Workout Handlers
@@ -1762,16 +1842,20 @@ export default function App() {
               stravaToken={stravaToken}
               athleteName={athleteName}
               activities={stravaActivities}
-              newActivityIds={newStravaActivityIds}
               activityDetails={stravaActivityDetails}
-              activityDetailStatus={stravaActivityDetailStatus}
               loading={isLoadingStravaActivities}
+              loadingMore={isLoadingMoreStrava}
+              hasMore={hasMoreStrava}
               error={stravaActivitiesError}
+              isGoogleConnected={isGoogleConnected}
+              googleUserEmail={googleUserEmail}
+              googleSheetUrl={googleSheetUrl}
               onRefresh={refreshStravaActivities}
-              onRetryActivityDetails={(activityId) => {
-                void fetchAndStoreStravaActivityDetails(activityId);
-              }}
+              onLoadMore={handleLoadMoreStravaActivities}
+              onConnectGoogle={handleConnectGoogle}
+              onDisconnectGoogle={handleDisconnectGoogle}
               onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
+              onActivityPublished={handleActivityPublished}
             />
           )}
 

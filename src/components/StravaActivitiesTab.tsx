@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ExternalLink,
   RotateCw,
   Dumbbell,
-  Flame,
-  Activity,
   Bike,
   Footprints,
+  Waves,
+  Activity,
   Clock,
   MapPin,
   Heart,
@@ -14,25 +14,45 @@ import {
   AlertCircle,
   Sparkles,
   UploadCloud,
+  Check,
+  FileSpreadsheet,
+  LogOut,
+  ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
   StravaActivity,
   StravaActivityDetailsRecord,
+  ActivityCategory,
 } from '../utils/stravaActivities';
+import {
+  classifyActivity,
+  formatSportMetrics,
+  isActivityNew,
+  isActivityUnpublished,
+  getLastStravaRefreshTime,
+} from '../utils/stravaActivities';
+import { StravaActivityModal } from './StravaActivityModal';
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
   athleteName: string | null;
   activities: StravaActivity[];
-  newActivityIds: string[];
   activityDetails: Record<string, StravaActivityDetailsRecord>;
-  activityDetailStatus: Record<string, { loading: boolean; error?: string }>;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string | null;
+  isGoogleConnected: boolean;
+  googleUserEmail?: string | null;
+  googleSheetUrl?: string | null;
   onRefresh: () => void;
-  onRetryActivityDetails: (activityId: string) => void;
+  onLoadMore: () => void;
+  onConnectGoogle: () => void;
+  onDisconnectGoogle: () => void;
   onOpenStravaSettings: () => void;
+  onActivityPublished: (activityId: string) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -40,12 +60,8 @@ function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${secs > 0 ? `${secs}s` : ''}`.trim();
-  }
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs > 0 ? `${secs}s` : ''}`.trim();
   return `${secs}s`;
 }
 
@@ -57,7 +73,6 @@ function formatActivityDate(dateString: string): string {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
     });
@@ -66,42 +81,73 @@ function formatActivityDate(dateString: string): string {
   }
 }
 
-function getActivityIcon(type?: string, sportType?: string) {
-  const t = (sportType || type || '').toLowerCase();
-  if (t.includes('weight') || t.includes('workout') || t.includes('crossfit')) {
-    return <Dumbbell className="w-5 h-5 text-amber-400" />;
+function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5') {
+  switch (category) {
+    case 'Swim':
+      return <Waves className={`${className} text-sky-400`} />;
+    case 'Bike':
+      return <Bike className={`${className} text-orange-400`} />;
+    case 'Run':
+      return <Footprints className={`${className} text-amber-400`} />;
+    case 'Strength':
+      return <Dumbbell className={`${className} text-emerald-400`} />;
+    default:
+      return <Activity className={`${className} text-purple-400`} />;
   }
-  if (t.includes('run') || t.includes('trail')) {
-    return <Flame className="w-5 h-5 text-orange-400" />;
-  }
-  if (t.includes('ride') || t.includes('bike') || t.includes('cycling')) {
-    return <Bike className="w-5 h-5 text-sky-400" />;
-  }
-  if (t.includes('walk') || t.includes('hike')) {
-    return <Footprints className="w-5 h-5 text-emerald-400" />;
-  }
-  return <Activity className="w-5 h-5 text-amber-400" />;
 }
 
-function formatSportName(type?: string, sportType?: string): string {
-  const raw = sportType || type || 'Workout';
-  // Insert spaces before capital letters (e.g. WeightTraining -> Weight Training)
-  return raw.replace(/([a-z])([A-Z])/g, '$1 $2');
+function formatLastRefresh(timestamp: number): string {
+  if (!timestamp || timestamp <= 0) return '';
+  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
 }
 
 export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   stravaToken,
   athleteName,
   activities,
-  newActivityIds,
   activityDetails,
-  activityDetailStatus,
   loading,
+  loadingMore,
+  hasMore,
   error,
+  isGoogleConnected,
+  googleUserEmail,
+  googleSheetUrl,
   onRefresh,
-  onRetryActivityDetails,
+  onLoadMore,
+  onConnectGoogle,
+  onDisconnectGoogle,
   onOpenStravaSettings,
+  onActivityPublished,
 }) => {
+  const [selectedCategory, setSelectedCategory] = useState<ActivityCategory | 'All'>('All');
+  const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
+
+  const lastRefreshTime = getLastStravaRefreshTime();
+  const lastRefreshFormatted = formatLastRefresh(lastRefreshTime);
+
+  // Filter activities by selected category
+  const filteredActivities = useMemo(() => {
+    if (selectedCategory === 'All') return activities;
+    return activities.filter((act) => classifyActivity(act).category === selectedCategory);
+  }, [activities, selectedCategory]);
+
+  // Category counts
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: activities.length, Swim: 0, Bike: 0, Run: 0, Strength: 0, Other: 0 };
+    for (const act of activities) {
+      const cat = classifyActivity(act).category;
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [activities]);
+
   if (!stravaToken) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center flex flex-col items-center max-w-lg mx-auto shadow-xl my-4">
@@ -110,7 +156,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
         <h3 className="text-lg font-black text-white mb-2">Connect Your Strava Account</h3>
         <p className="text-xs sm:text-sm text-slate-400 mb-6 leading-relaxed">
-          Authorize GymFIT to view your synced weight training workouts, runs, rides, and recent Strava activities directly inside the app.
+          Authorize GymFIT to view your synced strength workouts, runs, rides, and recent Strava activities directly inside the app.
         </p>
         <button
           type="button"
@@ -126,48 +172,107 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Top Header & Connected Status */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#FC5200]/20 border border-[#FC5200]/30 flex items-center justify-center shrink-0">
-            <StravaIcon className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white">
-                {athleteName ? athleteName : 'Strava Account'}
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Connected
-              </span>
+      {/* ========================================================= */}
+      {/* DUAL CONNECTION STATUS BOX: STRAVA (LEFT) | GOOGLE (RIGHT) */}
+      {/* ========================================================= */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+        {/* Left Side: Strava Connection Status */}
+        <div className="flex items-center justify-between gap-3 pr-0 md:pr-3 md:border-r md:border-slate-800/80">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#FC5200]/20 border border-[#FC5200]/30 flex items-center justify-center shrink-0">
+              <StravaIcon className="w-5 h-5" />
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Live athlete feed from Strava
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                  {athleteName || 'Strava Athlete'}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Connected
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {lastRefreshFormatted ? `Refreshed ${lastRefreshFormatted}` : 'Live Strava feed'}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-center">
           <button
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-            title="Refresh activities"
+            className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            title="Refresh activities (smart delta sync)"
           >
             <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
-            <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+            <span className="hidden sm:inline">{loading ? 'Syncing...' : 'Sync'}</span>
           </button>
-          <a
-            href="https://www.strava.com/athlete/training/activities"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
-          >
-            <span>Strava.com</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
+        </div>
+
+        {/* Right Side: Google Sheets Connection Status */}
+        <div className="flex items-center justify-between gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-800/80">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                  {isGoogleConnected ? 'Google Sheets' : 'Google Account'}
+                </span>
+                {isGoogleConnected ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full shrink-0">
+                    Not Linked
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {isGoogleConnected ? (
+                  googleSheetUrl ? (
+                    <a
+                      href={googleSheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>GymFIT Training Log</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  ) : (
+                    googleUserEmail || 'GymFIT Training Log ready'
+                  )
+                ) : (
+                  'Export streams & workouts to Sheets'
+                )}
+              </p>
+            </div>
+          </div>
+
+          {isGoogleConnected ? (
+            <button
+              type="button"
+              onClick={onDisconnectGoogle}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              title="Disconnect Google account"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onConnectGoogle}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-blue-600/20 shrink-0"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Connect</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -187,6 +292,42 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           </button>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* CATEGORY FILTER TABS: SWIM | BIKE | RUN | STRENGTH | OTHER */}
+      {/* ========================================================= */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {(['All', 'Strength', 'Run', 'Bike', 'Swim', 'Other'] as const).map((cat) => {
+          const count = categoryCounts[cat] || 0;
+          const isActive = selectedCategory === cat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                  : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              {cat === 'Swim' && <Waves className="w-3.5 h-3.5 text-sky-400" />}
+              {cat === 'Bike' && <Bike className="w-3.5 h-3.5 text-orange-400" />}
+              {cat === 'Run' && <Footprints className="w-3.5 h-3.5 text-amber-400" />}
+              {cat === 'Strength' && <Dumbbell className="w-3.5 h-3.5 text-emerald-400" />}
+              {cat === 'Other' && <Activity className="w-3.5 h-3.5 text-purple-400" />}
+              <span>{cat}</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  isActive ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Loading Skeletons */}
       {loading && activities.length === 0 && (
@@ -210,91 +351,103 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
       )}
 
-      {/* Activities List */}
-      {!loading && activities.length === 0 && !error && (
+      {/* Empty State */}
+      {!loading && filteredActivities.length === 0 && !error && (
         <div className="py-16 text-center text-slate-500 bg-slate-950/50 rounded-2xl border border-slate-800 flex flex-col items-center">
           <Activity className="w-8 h-8 text-slate-600 mb-2" />
-          <p className="text-sm font-bold text-slate-300">No activities found</p>
+          <p className="text-sm font-bold text-slate-300">No {selectedCategory !== 'All' ? selectedCategory : ''} activities found</p>
           <p className="text-xs text-slate-400 mt-1 max-w-sm">
-            No recent activities returned from your Strava account. Completed workouts uploaded from GymFIT will appear here.
+            {selectedCategory !== 'All'
+              ? `No activities classified as ${selectedCategory} found in current cache.`
+              : 'Completed workouts uploaded from GymFIT or Strava will appear here.'}
           </p>
           <button
             type="button"
             onClick={onRefresh}
             className="mt-4 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white transition-colors cursor-pointer"
           >
-            Check Again
+            Sync from Strava
           </button>
         </div>
       )}
 
-      {activities.length > 0 && (
-        <div className="grid grid-cols-1 gap-3">
-          {activities.map((act) => {
-            const duration = act.moving_time || act.elapsed_time || 0;
-            const distanceKm = act.distance > 0 ? (act.distance / 1000).toFixed(2) : null;
-            const elevation = act.total_elevation_gain && act.total_elevation_gain > 0 ? Math.round(act.total_elevation_gain) : null;
+      {/* Activities Feed */}
+      {filteredActivities.length > 0 && (
+        <div className="grid grid-cols-1 gap-2.5">
+          {filteredActivities.map((act) => {
             const activityId = String(act.id);
-            const isNew = newActivityIds.includes(activityId);
+            const classification = classifyActivity(act);
+            const metrics = formatSportMetrics(act);
+            const isNew = isActivityNew(act);
             const details = activityDetails[activityId];
-            const detailsStatus = activityDetailStatus[activityId];
-            const description = details?.activity?.description;
-            const calories = details?.activity?.calories;
-            const deviceName = details?.activity?.device_name;
-            const availableStreams = details?.streams ? Object.keys(details.streams) : [];
+            const isUnpublished = isActivityUnpublished(details);
+            const duration = act.moving_time || act.elapsed_time || 0;
 
             return (
               <div
                 key={act.id}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all shadow-sm flex flex-col gap-3 group"
+                onClick={() => setActiveModalActivity(act)}
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all shadow-sm flex flex-col gap-3 group cursor-pointer active:scale-[0.99]"
               >
+                {/* Header row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center shrink-0 mt-0.5">
-                      {getActivityIcon(act.type, act.sport_type)}
+                    <div className="w-10 h-10 rounded-xl bg-slate-800/90 border border-slate-700/60 flex items-center justify-center shrink-0 mt-0.5 group-hover:border-amber-400/50 transition-colors">
+                      {getCategoryIcon(classification.category)}
                     </div>
                     <div className="min-w-0">
                       <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
                         {act.name}
                       </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {formatActivityDate(act.start_date_local || act.start_date)}
-                      </p>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                        <span>{formatActivityDate(act.start_date_local || act.start_date)}</span>
+                        <span>·</span>
+                        <span className="font-medium text-slate-300">{classification.subType}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <a
-                    href={`https://www.strava.com/activities/${act.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-[#FC5200] hover:bg-slate-800 transition-colors shrink-0"
-                    title="View on Strava"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                </div>
-
-                {isNew && (
-                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
-                      <Sparkles className="w-3 h-3" />
-                      New
-                    </span>
-                    {!details?.googleDrivePublishedAt && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-black uppercase tracking-wide">
-                        <UploadCloud className="w-3 h-3" />
-                        Unpublished
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* "New" badge stays for 24h even if published */}
+                    {isNew && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>New</span>
                       </span>
                     )}
-                  </div>
-                )}
 
-                {/* Metrics Badges */}
-                <div className="flex items-center flex-wrap gap-2 text-xs font-mono">
-                  <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-sans font-bold text-[11px]">
-                    {formatSportName(act.type, act.sport_type)}
+                    {/* "Unpublished" badge until sent to Google Sheets */}
+                    {isUnpublished ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-black uppercase tracking-wide">
+                        <UploadCloud className="w-2.5 h-2.5" />
+                        <span>Unpublished</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-bold">
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        <span>Sheets</span>
+                      </span>
+                    )}
+
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                  </div>
+                </div>
+
+                {/* Primary Metrics Row Tailored to Sport */}
+                <div className="flex items-center flex-wrap gap-2 text-xs font-mono pt-1">
+                  {/* Primary metric badge */}
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-bold">
+                    {metrics.primaryMetricLabel}
                   </span>
 
+                  {/* Secondary metric badge */}
+                  {metrics.secondaryMetricLabel && (
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-amber-300 font-bold">
+                      {metrics.secondaryMetricLabel}
+                    </span>
+                  )}
+
+                  {/* Duration */}
                   {duration > 0 && (
                     <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
                       <Clock className="w-3 h-3 text-slate-400" />
@@ -302,19 +455,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     </span>
                   )}
 
-                  {distanceKm && (
-                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
-                      <MapPin className="w-3 h-3 text-slate-400" />
-                      <span>{distanceKm} km</span>
-                    </span>
-                  )}
-
-                  {elevation !== null && (
+                  {/* Elevation for outdoor run/bike */}
+                  {metrics.elevationLabel && (
                     <span className="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400">
-                      ↑ {elevation} m
+                      {metrics.elevationLabel}
                     </span>
                   )}
 
+                  {/* Average Heart Rate */}
                   {act.average_heartrate && (
                     <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300">
                       <Heart className="w-3 h-3 text-rose-400" />
@@ -322,80 +470,60 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     </span>
                   )}
 
+                  {/* Kudos */}
                   {act.kudos_count && act.kudos_count > 0 ? (
-                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 ml-auto font-sans font-bold text-[11px]">
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 ml-auto font-sans font-bold text-[11px]">
                       <ThumbsUp className="w-3 h-3 text-amber-400" />
                       <span>{act.kudos_count}</span>
                     </span>
                   ) : null}
-
-                  {act.pr_count && act.pr_count > 0 ? (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 font-sans font-bold text-[10px]">
-                      <Sparkles className="w-3 h-3 text-yellow-400" />
-                      <span>{act.pr_count} PR</span>
-                    </span>
-                  ) : null}
                 </div>
-
-                {isNew && (
-                  <div className="rounded-xl bg-slate-950/60 border border-slate-800/80 p-3 text-xs">
-                    {detailsStatus?.loading ? (
-                      <p className="text-slate-400">Loading detailed Strava data...</p>
-                    ) : detailsStatus?.error ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-rose-300">{detailsStatus.error}</p>
-                        <button
-                          type="button"
-                          onClick={() => onRetryActivityDetails(activityId)}
-                          className="text-amber-400 hover:underline font-bold shrink-0 cursor-pointer"
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    ) : details ? (
-                      <div className="space-y-2">
-                        {typeof description === 'string' && description.trim() && (
-                          <p className="text-slate-300 whitespace-pre-wrap">{description}</p>
-                        )}
-                        <div className="flex flex-wrap gap-2 text-[10px] font-bold">
-                          {typeof calories === 'number' && (
-                            <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
-                              {Math.round(calories)} kcal
-                            </span>
-                          )}
-                          {typeof deviceName === 'string' && deviceName && (
-                            <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
-                              {deviceName}
-                            </span>
-                          )}
-                          <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
-                            Analysis: {details.analysedAt ? 'complete' : 'pending'}
-                          </span>
-                          <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
-                            Google Drive: {details.googleDrivePublishedAt ? 'published' : 'not published'}
-                          </span>
-                        </div>
-                        {availableStreams.length > 0 && (
-                          <p className="text-slate-500">
-                            Detailed streams saved: {availableStreams.join(', ')}
-                          </p>
-                        )}
-                        {details.streamsError && (
-                          <p className="text-amber-300">
-                            Activity details saved, but streams were unavailable: {details.streamsError}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-slate-400">Detailed activity data is not available yet.</p>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
+
+          {/* ======================================================= */}
+          {/* "MORE ACTIVITIES" BUTTON (LOAD HISTORICAL STRAVA FILES) */}
+          {/* ======================================================= */}
+          <div className="pt-3 pb-6 flex flex-col items-center justify-center">
+            {hasMore ? (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore || loading}
+                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50 active:scale-98"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Loading 50 older activities...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Load 50 More Activities</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="text-center py-2 text-xs text-slate-500 font-medium">
+                ✓ All historical Strava activities loaded ({activities.length} total)
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      {/* Detailed Activity Pop-up Modal */}
+      <StravaActivityModal
+        isOpen={Boolean(activeModalActivity)}
+        activity={activeModalActivity}
+        stravaToken={stravaToken}
+        isGoogleConnected={isGoogleConnected}
+        onConnectGoogle={onConnectGoogle}
+        onClose={() => setActiveModalActivity(null)}
+        onActivityPublished={onActivityPublished}
+      />
     </div>
   );
 };
