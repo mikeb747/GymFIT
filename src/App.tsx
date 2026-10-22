@@ -25,11 +25,17 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
 import { StravaActivitiesTab } from './components/StravaActivitiesTab';
 import { downloadFitFile } from './utils/fitGenerator';
-import { checkAndProcessOAuthRedirect } from './utils/stravaOAuth';
+import {
+  checkAndProcessOAuthRedirect,
+  refreshStravaAccessToken,
+  STRAVA_CONFIG,
+} from './utils/stravaOAuth';
+import type { StravaTokenResponse } from './utils/stravaOAuth';
 import { uploadWorkoutToStrava } from './utils/stravaUpload';
 import {
   fetchStravaAthleteActivities,
   fetchStravaActivityDetails,
+  isStravaAuthorizationError,
   getCachedStravaActivities,
   getCachedStravaActivitiesSnapshot,
   getCachedStravaNewActivityIds,
@@ -706,12 +712,40 @@ export default function App() {
     try {
       const previousSnapshot = getCachedStravaActivitiesSnapshot();
       const previousIds = new Set((previousSnapshot || []).map((activity) => String(activity.id)));
-      const data = await fetchStravaAthleteActivities(accessToken);
-      const newIds = previousSnapshot === null
+      let currentToken = accessToken;
+      let tokenWasRefreshed = false;
+      const tokenExpiresAt = Number(localStorage.getItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT) || 0);
+      if (tokenExpiresAt > 0 && tokenExpiresAt <= Math.floor(Date.now() / 1000) + 60) {
+        currentToken = await refreshStravaAccessToken();
+        tokenWasRefreshed = true;
+        setStravaToken(currentToken);
+        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+      }
+
+      let data: StravaActivity[];
+      try {
+        data = await fetchStravaAthleteActivities(currentToken);
+      } catch (err) {
+        if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
+        currentToken = await refreshStravaAccessToken();
+        setStravaToken(currentToken);
+        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+        data = await fetchStravaAthleteActivities(currentToken);
+      }
+
+      const newlyDetectedIds = previousSnapshot === null
         ? []
         : data
             .filter((activity) => !previousIds.has(String(activity.id)))
             .map((activity) => String(activity.id));
+      const pendingIds = new Set([
+        ...getCachedStravaNewActivityIds(),
+        ...newlyDetectedIds,
+      ]);
+      const pendingRecords = await Promise.all(
+        [...pendingIds].map((id) => getCachedStravaActivityRecord(id))
+      );
+      const newIds = [...pendingIds].filter((id, index) => !pendingRecords[index]?.googleDrivePublishedAt);
       saveCachedStravaNewActivityIds(newIds);
       setStravaActivities(data);
       setNewStravaActivityIds(newIds);
@@ -1068,12 +1102,18 @@ export default function App() {
   };
 
   // Strava token updated
-  const handleTokenUpdated = (token: string | null, athlete?: any) => {
+  const handleTokenUpdated = (token: string | null, tokenData?: StravaTokenResponse | null) => {
     setStravaToken(token);
     if (token) {
       localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, token);
-      if (athlete?.firstname) {
-        const name = `${athlete.firstname} ${athlete.lastname || ''}`.trim();
+      if (tokenData?.refresh_token) {
+        localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.REFRESH_TOKEN, tokenData.refresh_token);
+      }
+      if (tokenData?.expires_at) {
+        localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT, String(tokenData.expires_at));
+      }
+      if (tokenData?.athlete?.firstname) {
+        const name = `${tokenData.athlete.firstname} ${tokenData.athlete.lastname || ''}`.trim();
         setAthleteName(name);
         localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
       }
@@ -1081,6 +1121,8 @@ export default function App() {
     } else {
       localStorage.removeItem(STORAGE_KEYS.STRAVA_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.STRAVA_ATHLETE);
+      localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.REFRESH_TOKEN);
+      localStorage.removeItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT);
       localStorage.removeItem('gymfit_strava_activities_cache');
       saveCachedStravaNewActivityIds([]);
       setStravaActivities([]);
@@ -1733,15 +1775,6 @@ export default function App() {
             />
           )}
 
-          {/* Main Dashboard Footer Tag */}
-          <div className="pt-8 pb-3 flex items-center justify-between border-t border-slate-900/60 mt-6">
-            <span className="text-xs font-mono text-slate-500">
-              GymFIT Strength & Conditioning Tracker
-            </span>
-            <span className="text-xs font-mono text-slate-500 select-none">
-              v1.1.3
-            </span>
-          </div>
         </main>
       )}
 

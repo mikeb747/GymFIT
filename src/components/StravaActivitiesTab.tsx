@@ -13,6 +13,7 @@ import {
   ThumbsUp,
   AlertCircle,
   Sparkles,
+  UploadCloud,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -259,11 +260,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         {formatActivityDate(act.start_date_local || act.start_date)}
                       </p>
-                      {isNew && (
-                        <span className="inline-flex mt-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
-                          New
-                        </span>
-                      )}
                     </div>
                   </div>
 
@@ -278,8 +274,23 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   </a>
                 </div>
 
+                {isNew && (
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
+                      <Sparkles className="w-3 h-3" />
+                      New
+                    </span>
+                    {!details?.googleDrivePublishedAt && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-black uppercase tracking-wide">
+                        <UploadCloud className="w-3 h-3" />
+                        Unpublished
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Metrics Badges */}
-                <div className="flex items-center flex-wrap gap-2 pt-1 border-t border-slate-800/60 text-xs font-mono">
+                <div className="flex items-center flex-wrap gap-2 text-xs font-mono">
                   <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-sans font-bold text-[11px]">
                     {formatSportName(act.type, act.sport_type)}
                   </span>

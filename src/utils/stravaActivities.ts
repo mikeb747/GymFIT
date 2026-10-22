@@ -39,6 +39,11 @@ export interface StravaActivityDetailsResponse {
 export const STRAVA_ACTIVITIES_CACHE_KEY = 'gymfit_strava_activities_cache';
 export const STRAVA_NEW_ACTIVITY_IDS_KEY = 'gymfit_strava_new_activity_ids';
 
+export function isStravaAuthorizationError(error: unknown): boolean {
+  return error instanceof Error &&
+    /authorization|unauthorized|access token/i.test(error.message);
+}
+
 const STRAVA_ACTIVITY_DB_NAME = 'gymfit_strava_activity_data';
 const STRAVA_ACTIVITY_DB_VERSION = 1;
 const STRAVA_ACTIVITY_STORE_NAME = 'activities';

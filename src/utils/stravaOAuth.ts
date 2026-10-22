@@ -79,6 +79,52 @@ export interface StravaTokenResponse {
   };
 }
 
+export async function refreshStravaAccessToken(): Promise<string> {
+  if (typeof window === 'undefined') {
+    throw new Error('Strava tokens can only be refreshed in a browser');
+  }
+
+  const refreshToken = localStorage.getItem(STRAVA_CONFIG.STORAGE_KEYS.REFRESH_TOKEN);
+  if (!refreshToken) {
+    throw new Error('Strava refresh token is missing. Disconnect and authorize Strava again.');
+  }
+
+  const response = await fetch('https://www.strava.com/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      client_id: getEffectiveClientId(),
+      client_secret: getEffectiveClientSecret(),
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+
+  const data: unknown = await response.json().catch(() => ({}));
+  const tokenData = data && typeof data === 'object' ? data as Partial<StravaTokenResponse> & {
+    message?: string;
+    error?: string;
+  } : {};
+  if (!response.ok || !tokenData.access_token) {
+    throw new Error(
+      tokenData.message || tokenData.error || `Strava token refresh failed (${response.status})`
+    );
+  }
+
+  localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.TOKEN, tokenData.access_token);
+  if (tokenData.refresh_token) {
+    localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.REFRESH_TOKEN, tokenData.refresh_token);
+  }
+  if (tokenData.expires_at) {
+    localStorage.setItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT, String(tokenData.expires_at));
+  }
+
+  return tokenData.access_token;
+}
+
 export function saveStravaCredentials(clientId: string, clientSecret: string): void {
   if (typeof window === 'undefined') return;
   if (clientId.trim()) {

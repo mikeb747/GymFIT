@@ -87,7 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Settings
                 </h2>
                 <span className="font-mono text-amber-400 font-bold px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-xs">
-                  v1.1.3
+                  v1.1.5
                 </span>
               </div>
               <p className="text-xs text-slate-400">Appearance, display scaling & preferences</p>

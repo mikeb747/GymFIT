@@ -5,13 +5,14 @@ import {
   buildStravaAuthUrl,
   getEffectiveClientId,
 } from '../utils/stravaOAuth';
+import type { StravaTokenResponse } from '../utils/stravaOAuth';
 
 interface StravaSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   stravaAccessToken: string | null;
   athleteName: string | null;
-  onTokenUpdated: (token: string | null, athlete?: any) => void;
+  onTokenUpdated: (token: string | null, tokenData?: StravaTokenResponse | null) => void;
 }
 
 export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
@@ -42,7 +43,7 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         const payload = event.data.payload;
         if (payload?.access_token) {
-          onTokenUpdated(payload.access_token, payload.athlete);
+          onTokenUpdated(payload.access_token, payload);
         }
         setIsConnecting(false);
       } else if (event.data?.type === 'OAUTH_AUTH_ERROR') {
