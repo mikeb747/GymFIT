@@ -15,15 +15,22 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
-import type { StravaActivity } from '../utils/stravaActivities';
+import type {
+  StravaActivity,
+  StravaActivityDetailsRecord,
+} from '../utils/stravaActivities';
 
 interface StravaActivitiesTabProps {
   stravaToken: string | null;
   athleteName: string | null;
   activities: StravaActivity[];
+  newActivityIds: string[];
+  activityDetails: Record<string, StravaActivityDetailsRecord>;
+  activityDetailStatus: Record<string, { loading: boolean; error?: string }>;
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  onRetryActivityDetails: (activityId: string) => void;
   onOpenStravaSettings: () => void;
 }
 
@@ -85,9 +92,13 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   stravaToken,
   athleteName,
   activities,
+  newActivityIds,
+  activityDetails,
+  activityDetailStatus,
   loading,
   error,
   onRefresh,
+  onRetryActivityDetails,
   onOpenStravaSettings,
 }) => {
   if (!stravaToken) {
@@ -222,6 +233,14 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             const duration = act.moving_time || act.elapsed_time || 0;
             const distanceKm = act.distance > 0 ? (act.distance / 1000).toFixed(2) : null;
             const elevation = act.total_elevation_gain && act.total_elevation_gain > 0 ? Math.round(act.total_elevation_gain) : null;
+            const activityId = String(act.id);
+            const isNew = newActivityIds.includes(activityId);
+            const details = activityDetails[activityId];
+            const detailsStatus = activityDetailStatus[activityId];
+            const description = details?.activity?.description;
+            const calories = details?.activity?.calories;
+            const deviceName = details?.activity?.device_name;
+            const availableStreams = details?.streams ? Object.keys(details.streams) : [];
 
             return (
               <div
@@ -240,6 +259,11 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         {formatActivityDate(act.start_date_local || act.start_date)}
                       </p>
+                      {isNew && (
+                        <span className="inline-flex mt-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
+                          New
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -301,6 +325,61 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                     </span>
                   ) : null}
                 </div>
+
+                {isNew && (
+                  <div className="rounded-xl bg-slate-950/60 border border-slate-800/80 p-3 text-xs">
+                    {detailsStatus?.loading ? (
+                      <p className="text-slate-400">Loading detailed Strava data...</p>
+                    ) : detailsStatus?.error ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-rose-300">{detailsStatus.error}</p>
+                        <button
+                          type="button"
+                          onClick={() => onRetryActivityDetails(activityId)}
+                          className="text-amber-400 hover:underline font-bold shrink-0 cursor-pointer"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : details ? (
+                      <div className="space-y-2">
+                        {typeof description === 'string' && description.trim() && (
+                          <p className="text-slate-300 whitespace-pre-wrap">{description}</p>
+                        )}
+                        <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                          {typeof calories === 'number' && (
+                            <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
+                              {Math.round(calories)} kcal
+                            </span>
+                          )}
+                          {typeof deviceName === 'string' && deviceName && (
+                            <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
+                              {deviceName}
+                            </span>
+                          )}
+                          <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
+                            Analysis: {details.analysedAt ? 'complete' : 'pending'}
+                          </span>
+                          <span className="px-2 py-1 rounded-lg bg-slate-900 text-slate-300">
+                            Google Drive: {details.googleDrivePublishedAt ? 'published' : 'not published'}
+                          </span>
+                        </div>
+                        {availableStreams.length > 0 && (
+                          <p className="text-slate-500">
+                            Detailed streams saved: {availableStreams.join(', ')}
+                          </p>
+                        )}
+                        {details.streamsError && (
+                          <p className="text-amber-300">
+                            Activity details saved, but streams were unavailable: {details.streamsError}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-slate-400">Detailed activity data is not available yet.</p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

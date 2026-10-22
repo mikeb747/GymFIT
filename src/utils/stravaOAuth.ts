@@ -59,7 +59,7 @@ export function buildStravaAuthUrl(customClientId?: string): string {
     redirect_uri: redirectUri,
     response_type: 'code',
     approval_prompt: 'auto',
-    scope: 'read,activity:write,activity:read',
+    scope: 'read,activity:write,activity:read_all',
   });
   return `https://www.strava.com/oauth/authorize?${params.toString()}`;
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Exercise,
   WorkoutTemplate,
@@ -29,8 +29,16 @@ import { checkAndProcessOAuthRedirect } from './utils/stravaOAuth';
 import { uploadWorkoutToStrava } from './utils/stravaUpload';
 import {
   fetchStravaAthleteActivities,
+  fetchStravaActivityDetails,
   getCachedStravaActivities,
+  getCachedStravaActivitiesSnapshot,
+  getCachedStravaNewActivityIds,
+  getCachedStravaActivityRecord,
+  ensureStravaActivityRecord,
+  saveCachedStravaNewActivityIds,
+  saveStravaActivityDetails,
   StravaActivity,
+  StravaActivityDetailsRecord,
 } from './utils/stravaActivities';
 import { getDefaultActivityName } from './utils/activityName';
 import {
@@ -271,6 +279,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'workouts' | 'history' | 'strava'>('workouts');
   const [templateFilter, setTemplateFilter] = useState<'favorites' | 'all'>('favorites');
   const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>(() => getCachedStravaActivities());
+  const [newStravaActivityIds, setNewStravaActivityIds] = useState<string[]>(() => getCachedStravaNewActivityIds());
+  const [stravaActivityDetails, setStravaActivityDetails] = useState<Record<string, StravaActivityDetailsRecord>>({});
+  const [stravaActivityDetailStatus, setStravaActivityDetailStatus] = useState<
+    Record<string, { loading: boolean; error?: string }>
+  >({});
+  const activityDetailsInProgress = useRef(new Set<string>());
   const [isLoadingStravaActivities, setIsLoadingStravaActivities] = useState(false);
   const [stravaActivitiesError, setStravaActivitiesError] = useState<string | null>(null);
   const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
@@ -652,13 +666,56 @@ export default function App() {
     });
   }, []);
 
-  const refreshStravaActivities = async () => {
-    if (!stravaToken) return;
+  const fetchAndStoreStravaActivityDetails = useCallback(async (
+    activityId: string,
+    accessToken: string | null = stravaToken
+  ) => {
+    if (!accessToken || activityDetailsInProgress.current.has(activityId)) return;
+    activityDetailsInProgress.current.add(activityId);
+    setStravaActivityDetailStatus((current) => ({
+      ...current,
+      [activityId]: { loading: true },
+    }));
+    try {
+      await ensureStravaActivityRecord(activityId);
+      const details = await fetchStravaActivityDetails(accessToken, activityId);
+      const record = await saveStravaActivityDetails(activityId, details);
+      setStravaActivityDetails((current) => ({ ...current, [activityId]: record }));
+      setStravaActivityDetailStatus((current) => {
+        const next = { ...current };
+        delete next[activityId];
+        return next;
+      });
+    } catch (err) {
+      setStravaActivityDetailStatus((current) => ({
+        ...current,
+        [activityId]: {
+          loading: false,
+          error: err instanceof Error ? err.message : 'Failed to save detailed Strava activity data',
+        },
+      }));
+    } finally {
+      activityDetailsInProgress.current.delete(activityId);
+    }
+  }, [stravaToken]);
+
+  const refreshStravaActivities = async (accessToken: string | null = stravaToken) => {
+    if (!accessToken) return;
     setIsLoadingStravaActivities(true);
     setStravaActivitiesError(null);
     try {
-      const data = await fetchStravaAthleteActivities(stravaToken);
+      const previousSnapshot = getCachedStravaActivitiesSnapshot();
+      const previousIds = new Set((previousSnapshot || []).map((activity) => String(activity.id)));
+      const data = await fetchStravaAthleteActivities(accessToken);
+      const newIds = previousSnapshot === null
+        ? []
+        : data
+            .filter((activity) => !previousIds.has(String(activity.id)))
+            .map((activity) => String(activity.id));
+      saveCachedStravaNewActivityIds(newIds);
       setStravaActivities(data);
+      setNewStravaActivityIds(newIds);
+      setStravaActivityDetailStatus({});
     } catch (err: any) {
       setStravaActivitiesError(err.message || 'Failed to fetch activities from Strava');
     } finally {
@@ -672,6 +729,50 @@ export default function App() {
       refreshStravaActivities();
     }
   }, [activeTab, stravaToken]);
+
+  useEffect(() => {
+    if (!stravaToken || stravaActivities.length === 0) return;
+    let cancelled = false;
+
+    const loadCachedDetailsAndFetchNew = async () => {
+      try {
+        const records = await Promise.all(
+          stravaActivities.map((activity) => getCachedStravaActivityRecord(activity.id))
+        );
+        if (cancelled) return;
+
+        const cachedDetails: Record<string, StravaActivityDetailsRecord> = {};
+        records.forEach((record) => {
+          if (record) cachedDetails[record.id] = record;
+        });
+        setStravaActivityDetails((current) => ({ ...current, ...cachedDetails }));
+
+        const missingNewIds = newStravaActivityIds.filter((id) => !cachedDetails[id]?.activity);
+        for (let index = 0; index < missingNewIds.length; index += 3) {
+          if (cancelled) return;
+          await Promise.all(
+            missingNewIds
+              .slice(index, index + 3)
+              .map((id) => fetchAndStoreStravaActivityDetails(id))
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Could not load saved Strava activity details';
+        setStravaActivityDetailStatus((current) => {
+          const next = { ...current };
+          newStravaActivityIds.forEach((id) => {
+            next[id] = { loading: false, error: message };
+          });
+          return next;
+        });
+      }
+    };
+
+    void loadCachedDetailsAndFetchNew();
+    return () => {
+      cancelled = true;
+    };
+  }, [stravaActivities, newStravaActivityIds, stravaToken, fetchAndStoreStravaActivityDetails]);
 
   // -------------------------------------------------------------
   // Exercise and Workout Handlers
@@ -976,14 +1077,16 @@ export default function App() {
         setAthleteName(name);
         localStorage.setItem(STORAGE_KEYS.STRAVA_ATHLETE, name);
       }
-      fetchStravaAthleteActivities(token)
-        .then((data) => setStravaActivities(data))
-        .catch(() => {});
+      void refreshStravaActivities(token);
     } else {
       localStorage.removeItem(STORAGE_KEYS.STRAVA_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.STRAVA_ATHLETE);
       localStorage.removeItem('gymfit_strava_activities_cache');
+      saveCachedStravaNewActivityIds([]);
       setStravaActivities([]);
+      setNewStravaActivityIds([]);
+      setStravaActivityDetails({});
+      setStravaActivityDetailStatus({});
       setAthleteName(null);
     }
   };
@@ -1617,9 +1720,15 @@ export default function App() {
               stravaToken={stravaToken}
               athleteName={athleteName}
               activities={stravaActivities}
+              newActivityIds={newStravaActivityIds}
+              activityDetails={stravaActivityDetails}
+              activityDetailStatus={stravaActivityDetailStatus}
               loading={isLoadingStravaActivities}
               error={stravaActivitiesError}
               onRefresh={refreshStravaActivities}
+              onRetryActivityDetails={(activityId) => {
+                void fetchAndStoreStravaActivityDetails(activityId);
+              }}
               onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
             />
           )}

@@ -145,6 +145,12 @@ export const StravaSettingsModal: React.FC<StravaSettingsModalProps> = ({
           )}
         </div>
 
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Activity details and available workout data streams require Strava&apos;s
+          private-activity permission. If you are already connected, disconnect and
+          authorize again to grant the updated access.
+        </p>
+
         {/* Error Alert */}
         {authError && (
           <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-800/80 text-rose-300 text-xs flex items-start gap-2.5 leading-relaxed">

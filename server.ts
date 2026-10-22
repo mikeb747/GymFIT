@@ -272,6 +272,57 @@ app.get('/api/strava/activities', async (req, res) => {
   }
 });
 
+// Fetch an individual activity and its available data streams from Strava
+app.get('/api/strava/activities/:activityId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const activityId = Number(req.params.activityId);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+      return res.status(400).json({ error: 'A valid Strava activity ID is required' });
+    }
+
+    const stravaRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+      method: 'GET',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava activity details' });
+  }
+});
+
+app.get('/api/strava/activities/:activityId/streams', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Strava access token is required' });
+    }
+
+    const activityId = Number(req.params.activityId);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) {
+      return res.status(400).json({ error: 'A valid Strava activity ID is required' });
+    }
+
+    const keys = 'time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth';
+    const stravaRes = await fetch(
+      `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=${keys}&key_by_type=true`,
+      {
+        method: 'GET',
+        headers: { Authorization: authHeader, Accept: 'application/json' },
+      }
+    );
+    const data = await stravaRes.json();
+    return res.status(stravaRes.status).json(data);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Error fetching Strava activity streams' });
+  }
+});
+
 // Token refresh endpoint if user provides refresh token
 app.post('/api/strava/refresh', async (req, res) => {
   try {
