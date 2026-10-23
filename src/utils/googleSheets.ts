@@ -1,6 +1,13 @@
 import { getGoogleAccessToken } from './googleAuth';
 import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
-import { classifyActivity, formatSportMetrics, calculateActivityTSS } from './stravaActivities';
+import {
+  classifyActivity,
+  formatSportMetrics,
+  calculateActivityTSS,
+  calculateNormalizedPower,
+} from './stravaActivities';
+import type { AthleteProfile } from '../types/athlete';
+import { calculateWorkKj } from '../types/athlete';
 
 export const GOOGLE_SHEETS_CONFIG = {
   STORAGE_KEYS: {
@@ -212,7 +219,8 @@ export async function getExistingActivityIdsInSheet(spreadsheetId: string): Prom
  */
 export async function appendActivityToTrainingLog(
   activity: StravaActivity,
-  details?: StravaActivityDetailsRecord
+  details?: StravaActivityDetailsRecord,
+  athleteProfile?: AthleteProfile
 ): Promise<SheetExportResult> {
   const token = getGoogleAccessToken();
   if (!token) {
@@ -236,11 +244,14 @@ export async function appendActivityToTrainingLog(
   }
 
   const classification = classifyActivity(activity);
-  const metrics = formatSportMetrics(activity);
+  const metrics = formatSportMetrics(activity, details);
 
-  const durationMovingMin = activity.moving_time ? (activity.moving_time / 60).toFixed(1) : '0';
+  const effectiveMovingSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0;
+  const effectiveDistanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+
+  const durationMovingMin = effectiveMovingSec ? (effectiveMovingSec / 60).toFixed(1) : '0';
   const durationElapsedMin = activity.elapsed_time ? (activity.elapsed_time / 60).toFixed(1) : durationMovingMin;
-  const distanceKm = activity.distance > 0 ? (activity.distance / 1000).toFixed(2) : '';
+  const distanceKm = effectiveDistanceM > 0 ? (effectiveDistanceM / 1000).toFixed(2) : '';
   const elevationM = activity.total_elevation_gain && activity.total_elevation_gain > 0
     ? Math.round(activity.total_elevation_gain).toString()
     : '';
@@ -251,20 +262,38 @@ export async function appendActivityToTrainingLog(
   // Power metrics strictly for Turbo Trainer or Bike only!
   const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
   let avgWatts = '';
+  let normalizedPowerStr = '';
+  let workKjStr = '';
+
   if (isBikeOrTurbo) {
-    if (activity.average_watts) {
-      avgWatts = Math.round(activity.average_watts).toString();
+    const rawWatts = details?.calibration?.calibratedAvgWatts ?? activity.average_watts;
+    if (rawWatts) {
+      avgWatts = Math.round(rawWatts).toString();
     } else if (streams?.watts?.data && streams.watts.data.length > 0) {
       const watts = streams.watts.data.filter((n: any) => typeof n === 'number' && n > 0);
       if (watts.length > 0) {
         avgWatts = Math.round(watts.reduce((a: number, b: number) => a + b, 0) / watts.length).toString();
       }
     }
+
+    const np = calculateNormalizedPower(activity, details);
+    if (np && np > 0) {
+      normalizedPowerStr = `${Math.round(np)}W NP`;
+    }
+
+    if (avgWatts && effectiveMovingSec > 0) {
+      const work = calculateWorkKj(Number(avgWatts), effectiveMovingSec);
+      workKjStr = work.formattedKj;
+    }
   }
 
   let avgCadence = activity.average_cadence ? Math.round(activity.average_cadence).toString() : '';
-  let avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate).toString() : '';
-  let maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate).toString() : '';
+  let avgHr = details?.calibration?.calibratedAvgHeartRate
+    ? String(details.calibration.calibratedAvgHeartRate)
+    : activity.average_heartrate ? Math.round(activity.average_heartrate).toString() : '';
+  let maxHr = details?.calibration?.calibratedMaxHeartRate
+    ? String(details.calibration.calibratedMaxHeartRate)
+    : activity.max_heartrate ? Math.round(activity.max_heartrate).toString() : '';
 
   if (streams) {
     if (!avgHr && streams.heartrate?.data && streams.heartrate.data.length > 0) {
@@ -282,14 +311,24 @@ export async function appendActivityToTrainingLog(
     }
   }
 
-  // Calculate TSS
-  const tssResult = calculateActivityTSS(activity, details);
+  // Calculate TSS customized with athlete profile & calibration
+  const tssResult = calculateActivityTSS(activity, details, athleteProfile);
   const tssValue = tssResult ? `${tssResult.tss} (${tssResult.type})` : '';
 
   const rawDescription = (details?.activity?.description as string) || '';
   const calories = (details?.activity?.calories as number) || (activity as any).calories || '';
   const stravaUrl = `https://www.strava.com/activities/${activity.id}`;
   const nowIso = new Date().toISOString();
+
+  // Combine power notes if present
+  let breakdownNotes = rawDescription;
+  if (normalizedPowerStr || workKjStr) {
+    const powerNote = [normalizedPowerStr, workKjStr].filter(Boolean).join(' · ');
+    breakdownNotes = breakdownNotes ? `${powerNote} | ${breakdownNotes}` : powerNote;
+  }
+  if (details?.calibration) {
+    breakdownNotes = `[Calibrated] ${breakdownNotes}`;
+  }
 
   const rowValues = [
     activity.start_date_local || activity.start_date,
@@ -304,11 +343,11 @@ export async function appendActivityToTrainingLog(
     metrics.primaryMetricLabel + (metrics.secondaryMetricLabel ? ` · ${metrics.secondaryMetricLabel}` : ''),
     avgHr,
     maxHr,
-    avgWatts,
+    avgWatts ? (normalizedPowerStr ? `${avgWatts}W (${normalizedPowerStr})` : avgWatts) : '',
     avgCadence,
     tssValue,
     calories ? Math.round(Number(calories)).toString() : '',
-    rawDescription.slice(0, 500),
+    breakdownNotes.slice(0, 500),
     stravaUrl,
     nowIso,
   ];

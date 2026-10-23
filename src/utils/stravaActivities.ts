@@ -24,15 +24,40 @@ export interface StravaActivity {
   suffer_score?: number;
 }
 
+export interface CalibratedSwimLap {
+  lapIndex: number;
+  distanceM: number;
+  movingTimeSec: number;
+  pacePer100mFormatted: string;
+  isIgnored?: boolean;
+}
+
+export interface ActivityCalibration {
+  isIgnoredFromTrainingStatus?: boolean; // Exclude from TSS & training load calculations
+  calibratedDistanceM?: number; // Overrides total distance (treadmill calibration)
+  calibratedMovingTimeSec?: number; // Overrides moving time
+  calibratedMaxHeartRate?: number; // Fixes inaccurate sensor spikes
+  calibratedAvgHeartRate?: number;
+  calibratedAvgWatts?: number;
+  calibratedNormalizedPower?: number;
+  calibratedLaps?: CalibratedSwimLap[]; // Fix inaccurate swim watch laps
+  calibratedAt?: string;
+  calibrationNotes?: string;
+}
+
 export interface StravaActivityDetailsRecord {
   id: string;
   activity?: Record<string, unknown>;
   streams?: Record<string, unknown>;
   streamsError?: string;
+  calibration?: ActivityCalibration;
   fetchedAt?: string;
   analysedAt?: string;
   googleDrivePublishedAt?: string;
 }
+
+import type { AthleteProfile } from '../types/athlete';
+import { formatSecondsToMinSec } from '../types/athlete';
 
 export interface StravaActivityDetailsResponse {
   activity: Record<string, unknown>;
@@ -239,10 +264,13 @@ export interface SportMetricsFormatted {
  * - Run & Treadmill Run: Avg pace in min/km, distance in km (NO power metrics!)
  * - Strength: Workout duration, effort (NO power metrics!)
  */
-export function formatSportMetrics(activity: StravaActivity): SportMetricsFormatted {
+export function formatSportMetrics(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): SportMetricsFormatted {
   const { category, subType } = classifyActivity(activity);
-  const distanceM = activity.distance || 0;
-  const movingTimeSec = activity.moving_time || activity.elapsed_time || 0;
+  const distanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const movingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
   const elevationM =
     activity.total_elevation_gain && activity.total_elevation_gain > 0
       ? Math.round(activity.total_elevation_gain)
@@ -267,15 +295,34 @@ export function formatSportMetrics(activity: StravaActivity): SportMetricsFormat
     }
 
     case 'Bike': {
-      // Cycling (Bike or Turbo Trainer): Average speed in km/h (kph)
+      // Cycling (Bike or Turbo Trainer): Average speed in km/h (kph) and max speed for outdoor
+      const effectiveWatts = details?.calibration?.calibratedAvgWatts ?? activity.average_watts;
+      const maxSpeedKph = activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : undefined;
+
       if (distanceM > 0 && movingTimeSec > 0) {
-        const kph = ((distanceM / 1000) / (movingTimeSec / 3600)).toFixed(1);
+        const avgKph = ((distanceM / 1000) / (movingTimeSec / 3600)).toFixed(1);
         const distanceKm = (distanceM / 1000).toFixed(1);
-        // Only show watts for Turbo Trainer or Bike
-        const wattsLabel = activity.average_watts ? `${Math.round(activity.average_watts)}W avg` : `${kph} kph`;
+
+        let secondaryParts: string[] = [];
+        if (subType === 'Bike') {
+          // Outdoor bike: report both avg speed and max speed
+          if (maxSpeedKph) {
+            secondaryParts.push(`${avgKph} kph avg · max ${maxSpeedKph} kph`);
+          } else {
+            secondaryParts.push(`${avgKph} kph avg`);
+          }
+        } else {
+          // Turbo Trainer
+          secondaryParts.push(`${avgKph} kph`);
+        }
+
+        if (effectiveWatts && effectiveWatts > 0) {
+          secondaryParts.push(`${Math.round(effectiveWatts)}W avg`);
+        }
+
         return {
           primaryMetricLabel: `${distanceKm} km`,
-          secondaryMetricLabel: activity.average_watts ? `${kph} kph · ${wattsLabel}` : `${kph} kph`,
+          secondaryMetricLabel: secondaryParts.join(' · '),
           elevationLabel: subType === 'Turbo Trainer' ? undefined : elevationLabel,
         };
       }
@@ -342,8 +389,58 @@ export interface SwimPaceDetails {
   }>;
 }
 
+export function calculateNormalizedPower(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): number | null {
+  const { subType } = classifyActivity(activity);
+  if (subType !== 'Turbo Trainer' && subType !== 'Bike') return null;
+
+  // 1. Check calibration override
+  if (typeof details?.calibration?.calibratedNormalizedPower === 'number' && details.calibration.calibratedNormalizedPower > 0) {
+    return Math.round(details.calibration.calibratedNormalizedPower);
+  }
+
+  // 2. Check Strava native weighted average watts
+  const stravaWeightedWatts = (details?.activity?.weighted_average_watts as number) || (activity as any).weighted_average_watts;
+  if (typeof stravaWeightedWatts === 'number' && stravaWeightedWatts > 0) {
+    return Math.round(stravaWeightedWatts);
+  }
+
+  // 3. Compute 30s rolling 4th-power algorithm if watts stream is available
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  if (streams?.watts?.data && streams.watts.data.length >= 30) {
+    const rawWatts = streams.watts.data.map((w: any) =>
+      typeof w === 'number' && w > 0 ? w : 0
+    );
+    const rolling30: number[] = [];
+    let windowSum = 0;
+    for (let i = 0; i < rawWatts.length; i++) {
+      windowSum += rawWatts[i];
+      if (i >= 30) {
+        windowSum -= rawWatts[i - 30];
+        rolling30.push(windowSum / 30);
+      }
+    }
+    if (rolling30.length > 0) {
+      const sum4th = rolling30.reduce((acc, val) => acc + Math.pow(val, 4), 0);
+      const np = Math.pow(sum4th / rolling30.length, 0.25);
+      if (np > 0) return Math.round(np);
+    }
+  }
+
+  // 4. Fallback based on calibrated or raw average watts
+  const avgWatts = details?.calibration?.calibratedAvgWatts || activity.average_watts;
+  if (typeof avgWatts === 'number' && avgWatts > 0) {
+    return Math.round(avgWatts * 1.05);
+  }
+
+  return null;
+}
+
 /**
- * Calculates Swim pace per 100m using moving laps if available, falling back to overall moving time / distance
+ * Calculates Swim pace per 100m using moving laps if available, falling back to overall moving time / distance.
+ * Fully supports user-calibrated laps and ignored laps from inaccurate watches.
  */
 export function getSwimPaceDetails(
   activity: StravaActivity,
@@ -352,6 +449,39 @@ export function getSwimPaceDetails(
   const { category } = classifyActivity(activity);
   if (category !== 'Swim') return null;
 
+  // 1. If user calibrated laps exist, prioritize them!
+  const calibratedLaps = details?.calibration?.calibratedLaps;
+  if (calibratedLaps && calibratedLaps.length > 0) {
+    const activeLaps = calibratedLaps.filter((l) => !l.isIgnored);
+    const sumLapTime = activeLaps.reduce((acc, l) => acc + (l.movingTimeSec || 0), 0);
+    const sumLapDist = activeLaps.reduce((acc, l) => acc + (l.distanceM || 0), 0);
+
+    const totalDist = sumLapDist > 0 ? sumLapDist : (details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0);
+    const totalMovingTime = sumLapTime > 0 ? sumLapTime : (details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0);
+
+    if (totalDist <= 0 || totalMovingTime <= 0) return null;
+
+    const secPer100m = (totalMovingTime / totalDist) * 100;
+    const mins = Math.floor(secPer100m / 60);
+    const secs = Math.round(secPer100m % 60);
+    const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
+
+    return {
+      pacePer100mFormatted: paceFormatted,
+      paceSecondsPer100m: secPer100m,
+      totalDistanceM: Math.round(totalDist),
+      movingTimeSec: Math.round(totalMovingTime),
+      laps: calibratedLaps.map((lap) => ({
+        lapIndex: lap.lapIndex,
+        distanceM: lap.distanceM,
+        movingTimeSec: lap.movingTimeSec,
+        pacePer100mFormatted: lap.pacePer100mFormatted,
+        isIgnored: Boolean(lap.isIgnored),
+      })),
+    };
+  }
+
+  // 2. Otherwise extract raw laps from Strava activity
   const rawLaps = (details?.activity?.laps as any[]) || [];
   const validMovingLaps = rawLaps.filter(
     (lap) =>
@@ -361,11 +491,11 @@ export function getSwimPaceDetails(
       lap.moving_time > 0
   );
 
-  let totalDist = activity.distance || 0;
-  let totalMovingTime = activity.moving_time || activity.elapsed_time || 0;
+  let totalDist = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  let totalMovingTime = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
 
   // If detailed moving laps are available, calculate cumulative moving lap metrics
-  if (validMovingLaps.length > 0) {
+  if (validMovingLaps.length > 0 && !details?.calibration?.calibratedDistanceM) {
     const sumLapTime = validMovingLaps.reduce((acc, l) => acc + l.moving_time, 0);
     const sumLapDist = validMovingLaps.reduce((acc, l) => acc + l.distance, 0);
     if (sumLapDist > 0 && sumLapTime > 0) {
@@ -404,60 +534,66 @@ export function getSwimPaceDetails(
 
 export interface TSSCalculationResult {
   tss: number;
-  type: 'Power TSS' | 'hrTSS' | 'sTSS' | 'Relative Effort';
+  type:
+    | 'Power TSS'
+    | 'rTSS (Outdoor)'
+    | 'rTSS (Treadmill)'
+    | 'sTSS (Pool)'
+    | 'sTSS (Open Water)'
+    | 'hrTSS'
+    | 'sTSS'
+    | 'Relative Effort'
+    | 'Ignored';
   description: string;
 }
 
 /**
- * Calculates Training Stress Score (TSS):
- * - Turbo Trainer & Bike with power: Power TSS based on Normalized Power and FTP (default 200W)
- * - Swim: sTSS based on pace / CSS pace (default 1:50/100m)
- * - Run / Treadmill / Bike with HR: hrTSS based on LTHR
- * - Fallback: Strava suffer_score (Relative Effort)
+ * Calculate Training Stress Score (TSS) customized with the athlete's profile and user calibration:
+ * - Respects calibration `isIgnoredFromTrainingStatus` (returns TSS 0)
+ * - Uses calibrated distance, moving time, heart rate, and power if set
+ * - Turbo Trainer & Bike: Power TSS (Normalized Power / FTP)
+ * - Run (Outdoor): rTSS using outdoor threshold pace
+ * - Treadmill Run: rTSS using treadmill threshold pace
+ * - Swim (Pool): sTSS using pool threshold pace / CSS
+ * - Open Water Swim: sTSS using open water threshold pace
+ * - Heart rate fallback: hrTSS based on LTHR / Heart Rate Reserve
+ * - Suffer score fallback
  */
 export function calculateActivityTSS(
   activity: StravaActivity,
   details?: StravaActivityDetailsRecord,
-  userFtp = 200,
-  userLthrRun = 165,
-  userLthrBike = 160
+  athleteProfile?: AthleteProfile,
+  fallbackUserFtp = 310,
+  fallbackUserLthrRun = 168,
+  fallbackUserLthrBike = 162
 ): TSSCalculationResult | null {
-  const { category, subType } = classifyActivity(activity);
-  const movingTimeSec = activity.moving_time || activity.elapsed_time || 0;
-  if (movingTimeSec <= 60) return null;
+  // If user flagged this activity as ignored from training status/TSS:
+  if (details?.calibration?.isIgnoredFromTrainingStatus) {
+    return {
+      tss: 0,
+      type: 'Ignored',
+      description: 'Activity excluded from training status and TSS calculations',
+    };
+  }
 
-  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+  const { category, subType } = classifyActivity(activity);
+  const effectiveMovingTimeSec = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
+  if (effectiveMovingTimeSec <= 60) return null;
+
+  const effectiveDistanceM = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const effectiveAvgHr = details?.calibration?.calibratedAvgHeartRate ?? activity.average_heartrate;
+
+  const userFtp = athleteProfile?.bikeFtp || fallbackUserFtp;
+  const userLthrRun = athleteProfile?.thresholdHeartRateRun || fallbackUserLthrRun;
+  const userLthrBike = athleteProfile?.thresholdHeartRateBike || fallbackUserLthrBike;
 
   // 1. Cycling Power TSS (STRICTLY for Turbo Trainer or Bike only!)
   if (subType === 'Turbo Trainer' || subType === 'Bike') {
-    let np = 0;
-    if (streams?.watts?.data && streams.watts.data.length >= 30) {
-      const rawWatts = streams.watts.data.map((w: any) =>
-        typeof w === 'number' && w > 0 ? w : 0
-      );
-      // Calculate 30s rolling average
-      const rolling30: number[] = [];
-      let windowSum = 0;
-      for (let i = 0; i < rawWatts.length; i++) {
-        windowSum += rawWatts[i];
-        if (i >= 30) {
-          windowSum -= rawWatts[i - 30];
-          rolling30.push(windowSum / 30);
-        }
-      }
-      if (rolling30.length > 0) {
-        const sum4th = rolling30.reduce((acc, val) => acc + Math.pow(val, 4), 0);
-        np = Math.pow(sum4th / rolling30.length, 0.25);
-      }
-    }
+    const np = calculateNormalizedPower(activity, details);
 
-    if (!np && activity.average_watts && activity.average_watts > 0) {
-      np = activity.average_watts * 1.05;
-    }
-
-    if (np > 0 && userFtp > 0) {
+    if (np && np > 0 && userFtp > 0) {
       const ifFactor = np / userFtp;
-      const tss = ((movingTimeSec * np * ifFactor) / (userFtp * 3600)) * 100;
+      const tss = ((effectiveMovingTimeSec * np * ifFactor) / (userFtp * 3600)) * 100;
       return {
         tss: Math.round(tss),
         type: 'Power TSS',
@@ -466,35 +602,61 @@ export function calculateActivityTSS(
     }
   }
 
-  // 2. Swim TSS (sTSS) for Swim or Open Water Swim
-  if (category === 'Swim') {
-    const swimPace = getSwimPaceDetails(activity, details);
-    if (swimPace && swimPace.paceSecondsPer100m > 0) {
-      // Default CSS (Critical Swim Speed) pace = 110 sec / 100m (~1:50/100m)
-      const cssSec = 110;
-      const ifSwim = cssSec / swimPace.paceSecondsPer100m;
-      const sTSS = (movingTimeSec * Math.pow(ifSwim, 3) / 3600) * 100;
+  // 2. Running Pace-based TSS (rTSS) differentiating Outdoor vs Treadmill!
+  if (category === 'Run' && effectiveDistanceM > 200 && effectiveMovingTimeSec > 60) {
+    const isTreadmill = subType === 'Treadmill Run';
+    const thresholdPaceSec = isTreadmill
+      ? (athleteProfile?.thresholdPaceRunTreadmillSec || 228)
+      : (athleteProfile?.thresholdPaceRunOutdoorSec || 228);
+
+    const avgPaceSec = effectiveMovingTimeSec / (effectiveDistanceM / 1000);
+    if (avgPaceSec > 120 && avgPaceSec < 1200) {
+      const ifPace = thresholdPaceSec / avgPaceSec;
+      const rTss = ((effectiveMovingTimeSec * Math.pow(ifPace, 2)) / 3600) * 100;
+      const paceLabel = formatSecondsToMinSec(avgPaceSec);
+      const threshLabel = formatSecondsToMinSec(thresholdPaceSec);
       return {
-        tss: Math.round(sTSS),
-        type: 'sTSS',
-        description: `Swim TSS based on ${swimPace.pacePer100mFormatted} pace`,
+        tss: Math.round(rTss),
+        type: isTreadmill ? 'rTSS (Treadmill)' : 'rTSS (Outdoor)',
+        description: `${isTreadmill ? 'Treadmill' : 'Outdoor'} Pace ${paceLabel}/km (Threshold ${threshLabel}/km, IF ${ifPace.toFixed(2)})`,
       };
     }
   }
 
-  // 3. Heart Rate TSS (hrTSS) for Run, Treadmill Run, Bike without power, or Cardio
-  if (activity.average_heartrate && activity.average_heartrate > 40) {
+  // 3. Swimming TSS (sTSS) differentiating Pool vs Open Water
+  if (category === 'Swim' && effectiveDistanceM > 50 && effectiveMovingTimeSec > 30) {
+    const isOpenWater = subType === 'Open Water Swim';
+    const thresholdSwimPaceSec = isOpenWater
+      ? (athleteProfile?.swimOpenWaterPace100mSec || 98)
+      : (athleteProfile?.swimPoolPace100mSec || 90);
+
+    const avgPace100m = effectiveMovingTimeSec / (effectiveDistanceM / 100);
+    if (avgPace100m > 30 && avgPace100m < 600) {
+      const ifSwim = thresholdSwimPaceSec / avgPace100m;
+      const sTss = ((effectiveMovingTimeSec * Math.pow(ifSwim, 3)) / 3600) * 100;
+      const paceLabel = formatSecondsToMinSec(avgPace100m);
+      const threshLabel = formatSecondsToMinSec(thresholdSwimPaceSec);
+      return {
+        tss: Math.round(sTss),
+        type: isOpenWater ? 'sTSS (Open Water)' : 'sTSS (Pool)',
+        description: `${isOpenWater ? 'Open water' : 'Pool'} pace ${paceLabel}/100m (Threshold ${threshLabel}/100m, IF ${ifSwim.toFixed(2)})`,
+      };
+    }
+  }
+
+  // 4. Heart Rate TSS (hrTSS) for any activity with heart rate data
+  if (effectiveAvgHr && effectiveAvgHr > 40) {
     const lthr = category === 'Run' ? userLthrRun : userLthrBike;
-    const ifHr = activity.average_heartrate / lthr;
-    const hrTss = ((movingTimeSec * activity.average_heartrate * ifHr) / (lthr * 3600)) * 100;
+    const ifHr = effectiveAvgHr / lthr;
+    const hrTss = ((effectiveMovingTimeSec * effectiveAvgHr * ifHr) / (lthr * 3600)) * 100;
     return {
       tss: Math.round(hrTss),
       type: 'hrTSS',
-      description: `hrTSS based on avg HR ${Math.round(activity.average_heartrate)} bpm (LTHR ${lthr})`,
+      description: `hrTSS based on avg HR ${Math.round(effectiveAvgHr)} bpm (LTHR ${lthr})`,
     };
   }
 
-  // 4. Strava Suffer Score fallback
+  // 5. Strava Suffer Score fallback
   if (activity.suffer_score && activity.suffer_score > 0) {
     return {
       tss: activity.suffer_score,
@@ -607,6 +769,29 @@ export function markStravaActivityPublishedToGoogleSheets(
     ...record,
     googleDrivePublishedAt: publishedAt,
   }));
+}
+
+export function saveActivityCalibration(
+  activityId: number | string,
+  calibration: ActivityCalibration
+): Promise<StravaActivityDetailsRecord> {
+  return updateStravaActivityRecord(activityId, (record) => ({
+    ...record,
+    calibration: {
+      ...calibration,
+      calibratedAt: new Date().toISOString(),
+    },
+  }));
+}
+
+export function clearActivityCalibration(
+  activityId: number | string
+): Promise<StravaActivityDetailsRecord> {
+  return updateStravaActivityRecord(activityId, (record) => {
+    const next = { ...record };
+    delete next.calibration;
+    return next;
+  });
 }
 
 // --------------------------------------------------------------------------

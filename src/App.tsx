@@ -21,9 +21,16 @@ import { ExercisePickerModal } from './components/ExercisePickerModal';
 import { WorkoutSummaryModal } from './components/WorkoutSummaryModal';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
 import { SettingsModal } from './components/SettingsModal';
+import { AthleteProfileModal } from './components/AthleteProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
 import { StravaActivitiesTab } from './components/StravaActivitiesTab';
+import type { AthleteProfile } from './types/athlete';
+import {
+  loadAthleteProfile,
+  saveAthleteProfile,
+  resetAthleteProfile,
+} from './utils/athleteStorage';
 import { downloadFitFile } from './utils/fitGenerator';
 import {
   checkAndProcessOAuthRedirect,
@@ -79,6 +86,8 @@ import {
   Trash2,
   UploadCloud,
   ExternalLink,
+  HeartPulse,
+  Sliders,
 } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -155,6 +164,18 @@ export default function App() {
   };
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAthleteProfileOpen, setIsAthleteProfileOpen] = useState(false);
+  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => loadAthleteProfile());
+
+  const handleSaveAthleteProfile = (updated: AthleteProfile) => {
+    setAthleteProfile(updated);
+    saveAthleteProfile(updated);
+  };
+
+  const handleResetAthleteProfile = () => {
+    const defaults = resetAthleteProfile();
+    setAthleteProfile(defaults);
+  };
 
   const [favoriteExerciseIds, setFavoriteExerciseIds] = useState<number[]>(() => {
     try {
@@ -1238,8 +1259,8 @@ export default function App() {
             aria-label="Open Settings"
             className="flex items-center gap-2.5 cursor-pointer select-none group active:scale-[0.98] transition-transform text-left p-1 -m-1 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
-            <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/20 group-hover:brightness-110">
-              <Dumbbell className="w-4 h-4 stroke-[2.5]" />
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/10 group-hover:brightness-110">
+              <Sliders className="w-4 h-4 stroke-[2.5]" />
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-sm sm:text-base font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors leading-snug">
@@ -1257,6 +1278,17 @@ export default function App() {
           <div className="flex items-center gap-2">
             {/* Direct PWA Install Button (auto-hides when already running standalone) */}
             <PWAInstallButton />
+
+            {/* Athlete Profile & Zones Button */}
+            <button
+              type="button"
+              onClick={() => setIsAthleteProfileOpen(true)}
+              title="Athlete Physiology & Zones"
+              className="h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 shadow-sm"
+            >
+              <HeartPulse className="w-4 h-4 text-rose-400" />
+              <span className="hidden sm:inline">Profile</span>
+            </button>
 
             {/* Strava Connect Button */}
             <button
@@ -1843,6 +1875,7 @@ export default function App() {
               athleteName={athleteName}
               activities={stravaActivities}
               activityDetails={stravaActivityDetails}
+              athleteProfile={athleteProfile}
               loading={isLoadingStravaActivities}
               loadingMore={isLoadingMoreStrava}
               hasMore={hasMoreStrava}
@@ -1856,6 +1889,7 @@ export default function App() {
               onDisconnectGoogle={handleDisconnectGoogle}
               onOpenStravaSettings={() => setIsStravaSettingsOpen(true)}
               onActivityPublished={handleActivityPublished}
+              onOpenAthleteProfile={() => setIsAthleteProfileOpen(true)}
             />
           )}
 
@@ -1888,6 +1922,16 @@ export default function App() {
           localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
           localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
         }}
+        onOpenAthleteProfile={() => setIsAthleteProfileOpen(true)}
+      />
+
+      {/* Athlete Physiology & Analysis Thresholds Modal */}
+      <AthleteProfileModal
+        isOpen={isAthleteProfileOpen}
+        onClose={() => setIsAthleteProfileOpen(false)}
+        profile={athleteProfile}
+        onSaveProfile={handleSaveAthleteProfile}
+        onResetDefaults={handleResetAthleteProfile}
       />
 
       {/* 1. Multi-Figure Digit Drum Weight Scroll Wheel */}

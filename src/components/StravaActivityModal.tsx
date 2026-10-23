@@ -18,6 +18,11 @@ import {
   Sparkles,
   UploadCloud,
   Award,
+  BatteryCharging,
+  Sliders,
+  Wrench,
+  Gauge,
+  Flame,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -33,18 +38,25 @@ import {
   getCachedStravaActivityRecord,
   markStravaActivityPublishedToGoogleSheets,
   calculateActivityTSS,
+  calculateNormalizedPower,
   getSwimPaceDetails,
 } from '../utils/stravaActivities';
+import type { AthleteProfile } from '../types/athlete';
+import { calculateRecoveryEstimate, calculateWorkKj } from '../types/athlete';
+import { StravaStreamPlot } from './StravaStreamPlot';
+import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 
 interface StravaActivityModalProps {
   isOpen: boolean;
   activity: StravaActivity | null;
   stravaToken: string | null;
+  athleteProfile: AthleteProfile;
   isGoogleConnected: boolean;
   onConnectGoogle: () => void;
   onClose: () => void;
   onActivityPublished?: (activityId: string) => void;
+  onOpenAthleteProfile?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -94,14 +106,17 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   isOpen,
   activity,
   stravaToken,
+  athleteProfile,
   isGoogleConnected,
   onConnectGoogle,
   onClose,
   onActivityPublished,
+  onOpenAthleteProfile,
 }) => {
   const [detailsRecord, setDetailsRecord] = useState<StravaActivityDetailsRecord | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
 
   const [isExportingToSheets, setIsExportingToSheets] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<{ url: string; alreadyExists: boolean } | null>(null);
@@ -112,6 +127,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
       setDetailsRecord(null);
       setExportSuccess(null);
       setExportError(null);
+      setIsCalibrationOpen(false);
       return;
     }
 
@@ -151,26 +167,50 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
   if (!isOpen || !activity) return null;
 
   const classification = classifyActivity(activity);
-  const metrics = formatSportMetrics(activity);
+  const hasCalibration = Boolean(detailsRecord?.calibration);
+  const isIgnored = Boolean(detailsRecord?.calibration?.isIgnoredFromTrainingStatus);
+
+  const durationMoving = detailsRecord?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? 0;
+  const durationElapsed = activity.elapsed_time || 0;
+  const effectiveDistanceM = detailsRecord?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const metrics = formatSportMetrics(activity, detailsRecord || undefined);
   const isNew = isActivityNew(activity);
   const isUnpublished = isActivityUnpublished(detailsRecord || undefined);
 
-  const durationMoving = activity.moving_time || 0;
-  const durationElapsed = activity.elapsed_time || 0;
   const calories = (detailsRecord?.activity?.calories as number) || activity.calories;
   const description = (detailsRecord?.activity?.description as string) || '';
 
   const streams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
   const availableStreamsList = streams ? Object.keys(streams).filter((k) => streams[k]?.data?.length) : [];
 
-  // Calculate TSS
-  const tssResult = calculateActivityTSS(activity, detailsRecord || undefined);
-
-  // Swim Pace Details & Laps
-  const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
-
   // Strict power metric rule: ONLY for Turbo Trainer or Bike!
   const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
+  const effectiveAvgWatts = isBikeOrTurbo
+    ? (detailsRecord?.calibration?.calibratedAvgWatts ?? activity.average_watts ?? null)
+    : null;
+  const normalizedPower = isBikeOrTurbo
+    ? calculateNormalizedPower(activity, detailsRecord || undefined)
+    : null;
+
+  // Mechanical work in kJ: kJ = Watts * Hours * 3.6
+  const workResult = (isBikeOrTurbo && effectiveAvgWatts && effectiveAvgWatts > 0 && durationMoving > 0)
+    ? calculateWorkKj(effectiveAvgWatts, durationMoving)
+    : null;
+
+  // Outdoor ride speeds
+  const outdoorAvgSpeedKph = (durationMoving > 0 && effectiveDistanceM > 0)
+    ? (((effectiveDistanceM / 1000) / (durationMoving / 3600)).toFixed(1))
+    : (activity.average_speed ? (activity.average_speed * 3.6).toFixed(1) : null);
+  const outdoorMaxSpeedKph = activity.max_speed ? (activity.max_speed * 3.6).toFixed(1) : null;
+
+  // Calculate TSS customized with athlete physiological profile & calibration
+  const tssResult = calculateActivityTSS(activity, detailsRecord || undefined, athleteProfile);
+  const recoveryEstimate = tssResult && tssResult.type !== 'Ignored'
+    ? calculateRecoveryEstimate(tssResult.tss, athleteProfile)
+    : null;
+
+  // Swim Pace Details & Laps (calibrated)
+  const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
 
   const handleExportToSheets = async () => {
     if (!isGoogleConnected) {
@@ -183,7 +223,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
     setExportSuccess(null);
 
     try {
-      const result = await appendActivityToTrainingLog(activity, detailsRecord || undefined);
+      const result = await appendActivityToTrainingLog(activity, detailsRecord || undefined, athleteProfile);
       // Mark as published in IndexedDB
       const updated = await markStravaActivityPublishedToGoogleSheets(activity.id);
       setDetailsRecord(updated);
@@ -219,14 +259,25 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-            title="Close modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsCalibrationOpen(true)}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer border border-slate-700"
+              title="Calibrate / Fix Inaccurate Data"
+            >
+              <Wrench className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -237,6 +288,19 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               {getCategoryIcon(classification.category, 'w-3.5 h-3.5')}
               <span>{classification.subType}</span>
             </span>
+
+            {/* Ignored or Calibrated Badge */}
+            {isIgnored ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[11px] font-black uppercase tracking-wide">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Ignored from Training Load
+              </span>
+            ) : hasCalibration ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-black uppercase tracking-wide">
+                <Sliders className="w-3.5 h-3.5" />
+                Calibrated Data
+              </span>
+            ) : null}
 
             {/* "New" badge stays for 24 hours even if published */}
             {isNew && (
@@ -259,6 +323,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </span>
             )}
 
+            {/* Calibrate Data quick link button */}
+            <button
+              type="button"
+              onClick={() => setIsCalibrationOpen(true)}
+              className="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-bold hover:underline cursor-pointer"
+            >
+              <Wrench className="w-3 h-3" />
+              <span>{hasCalibration ? 'Edit Calibration' : 'Fix Data'}</span>
+            </button>
+
             <a
               href={`https://www.strava.com/activities/${activity.id}`}
               target="_blank"
@@ -279,7 +353,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               </span>
               {durationElapsed > durationMoving && (
                 <span className="text-[10px] text-slate-500 font-mono">
-                  {formatDuration(durationElapsed)} total
+                  {formatDuration(durationElapsed)} elapsed
                 </span>
               )}
             </div>
@@ -300,14 +374,24 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
               <span className="text-[11px] font-medium text-slate-400">
-                {classification.category === 'Swim' ? 'Avg Pace / 100m' : 'Elevation'}
+                {classification.category === 'Swim'
+                  ? 'Avg Pace / 100m'
+                  : classification.subType === 'Bike'
+                  ? 'Avg Speed'
+                  : 'Elevation'}
               </span>
               <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
                 {classification.category === 'Swim'
                   ? (swimPace?.pacePer100mFormatted || '0:00/100m')
+                  : classification.subType === 'Bike'
+                  ? `${outdoorAvgSpeedKph || '--'} kph`
                   : (activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor')}
               </span>
-              {classification.category !== 'Swim' && activity.max_speed ? (
+              {classification.subType === 'Bike' && outdoorMaxSpeedKph ? (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  max {outdoorMaxSpeedKph} kph
+                </span>
+              ) : classification.category !== 'Swim' && activity.max_speed ? (
                 <span className="text-[10px] text-slate-500 font-mono">
                   max {(activity.max_speed * 3.6).toFixed(1)} kph
                 </span>
@@ -315,11 +399,17 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
 
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
-              <span className="text-[11px] font-medium text-slate-400">Energy / HR</span>
-              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
-                {calories ? `${Math.round(calories)} kcal` : activity.average_heartrate ? `${Math.round(activity.average_heartrate)} bpm` : '--'}
+              <span className="text-[11px] font-medium text-slate-400">
+                {workResult ? 'Energy / Work' : 'Energy / HR'}
               </span>
-              {activity.suffer_score ? (
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
+                {workResult ? workResult.formattedKj : calories ? `${Math.round(calories)} kcal` : activity.average_heartrate ? `${Math.round(activity.average_heartrate)} bpm` : '--'}
+              </span>
+              {workResult ? (
+                <span className="text-[10px] text-amber-400 font-mono">
+                  ~{workResult.kcal} kcal
+                </span>
+              ) : activity.suffer_score ? (
                 <span className="text-[10px] text-rose-400 font-mono">
                   suffer score: {activity.suffer_score}
                 </span>
@@ -327,33 +417,168 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           </div>
 
-          {/* TSS (Training Stress Score) Metric Banner if available */}
-          {tssResult && (
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/30 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-                  <Award className="w-5 h-5 text-amber-400" />
+          {/* Dedicated Cycling Power & Normalized Power & Energy (kJ) Card */}
+          {isBikeOrTurbo && (effectiveAvgWatts || normalizedPower) && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-950 to-slate-900 border border-amber-500/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <h4 className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                    Cycling Power & Mechanical Work
+                  </h4>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                      Training Stress Score
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-500/20 text-amber-200">
-                      {tssResult.type}
-                    </span>
+                {classification.subType === 'Bike' && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                    Outdoor Ride
+                  </span>
+                )}
+                {classification.subType === 'Turbo Trainer' && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                    Turbo Trainer
+                  </span>
+                )}
+              </div>
+
+              {/* Power Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Average Power</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-white mt-0.5">
+                    {effectiveAvgWatts ? `${Math.round(effectiveAvgWatts)}W` : '--'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Normalized Power (NP)</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5">
+                    {normalizedPower ? `${Math.round(normalizedPower)}W` : '--'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Mechanical Work</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5">
+                    {workResult ? workResult.formattedKj : '--'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col">
+                  <span className="text-[10px] text-slate-400">Est. Energy Burn</span>
+                  <span className="text-base sm:text-lg font-black font-mono text-amber-300 mt-0.5">
+                    {workResult ? `~${workResult.kcal} kcal` : calories ? `${Math.round(calories)} kcal` : '--'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Work Formula Callout */}
+              {workResult && effectiveAvgWatts && (
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300 space-y-1">
+                  <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <Flame className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Energy / Work Calculation:</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {tssResult.description}
-                  </p>
+                  <div className="text-slate-400 font-mono space-y-0.5 pl-5">
+                    <div>• {(durationMoving / 3600).toFixed(1)}-Hour Ride at {Math.round(effectiveAvgWatts)} Watts</div>
+                    <div>• Hours = {(durationMoving / 3600).toFixed(2)} h ({durationMoving.toLocaleString()} seconds)</div>
+                    <div>
+                      • kJ = {Math.round(effectiveAvgWatts)} W × {(durationMoving / 3600).toFixed(2)} h × 3.6 = <strong className="text-white">{workResult.formattedKj}</strong> (roughly {workResult.kcal} kcal)
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Outdoor Ride Speed Telemetry (Average & Max Speed) */}
+          {classification.subType === 'Bike' && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Gauge className="w-4 h-4 text-orange-400 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-white block">
+                    Outdoor Cycling Speeds
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    GPS-measured outdoor velocity
+                  </span>
                 </div>
               </div>
-              <div className="text-right shrink-0">
-                <span className="text-2xl font-black font-mono text-amber-400">
-                  {tssResult.tss}
-                </span>
-                <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
+
+              <div className="flex items-center gap-4 text-right">
+                <div>
+                  <span className="text-[10px] text-slate-500 block">Avg Speed</span>
+                  <span className="text-sm font-bold font-mono text-white">
+                    {outdoorAvgSpeedKph || '--'} kph
+                  </span>
+                </div>
+                <div className="border-l border-slate-800 pl-4">
+                  <span className="text-[10px] text-slate-500 block">Max Speed</span>
+                  <span className="text-sm font-bold font-mono text-orange-400">
+                    {outdoorMaxSpeedKph ? `${outdoorMaxSpeedKph} kph` : '--'}
+                  </span>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* TSS (Training Stress Score) & Recovery Estimation Card */}
+          {tssResult && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/30 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <Award className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                        Training Stress Score
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200">
+                        {tssResult.type}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {tssResult.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
+                    {tssResult.tss}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
+                </div>
+              </div>
+
+              {/* Recovery Guidance */}
+              {recoveryEstimate && (
+                <div className="pt-2.5 border-t border-slate-800/80 flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-2">
+                    <BatteryCharging className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-xs">
+                      <span className="font-bold text-white mr-1.5">
+                        ~{recoveryEstimate.recoveryHours}h Recovery
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${recoveryEstimate.statusColor}`}>
+                        {recoveryEstimate.fatigueLevel} Fatigue
+                      </span>
+                    </div>
+                  </div>
+
+                  {onOpenAthleteProfile && (
+                    <button
+                      type="button"
+                      onClick={onOpenAthleteProfile}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 hover:underline ml-auto cursor-pointer"
+                    >
+                      <Sliders className="w-3 h-3" />
+                      <span>Adjust Zones & Paces</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -389,77 +614,59 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
           )}
 
-          {/* Telemetry Streams & Details */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+          {/* ======================================================= */}
+          {/* CACHED STREAMS INTERACTIVE PLOT & TELEMETRY             */}
+          {/* ======================================================= */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>Sensor Telemetry & Streams</span>
-              </h4>
-              {loadingDetails && (
-                <span className="text-[11px] text-amber-400 flex items-center gap-1">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" />
+                <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  Interactive Streams & Plot
+                </h4>
+              </div>
+
+              {loadingDetails ? (
+                <span className="text-[11px] text-amber-400 flex items-center gap-1 font-mono">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Fetching streams...
                 </span>
-              )}
+              ) : availableStreamsList.length > 0 ? (
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  {availableStreamsList.length} streams cached
+                </span>
+              ) : null}
             </div>
 
-            {detailsError ? (
-              <p className="text-xs text-rose-300">{detailsError}</p>
+            {/* Interactive Stream Plot Component */}
+            {streams ? (
+              <StravaStreamPlot
+                streams={streams}
+                activity={activity}
+                athleteProfile={athleteProfile}
+              />
+            ) : loadingDetails ? (
+              <div className="p-8 rounded-2xl bg-slate-950/60 border border-slate-800 text-center flex flex-col items-center justify-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+                <p className="text-xs text-slate-400">Loading heart rate, pace, elevation, and sensor streams...</p>
+              </div>
+            ) : detailsError ? (
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+                {detailsError}
+              </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                {activity.average_heartrate && (
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Heart className="w-4 h-4 text-rose-400 shrink-0" />
-                    <div>
-                      <div className="text-[10px] text-slate-400">Heart Rate</div>
-                      <div className="font-mono font-bold text-rose-300">
-                        {Math.round(activity.average_heartrate)} bpm
-                        {activity.max_heartrate ? ` (max ${Math.round(activity.max_heartrate)})` : ''}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Power Output: STRICTLY FOR TURBO TRAINER OR BIKE */}
-                {isBikeOrTurbo && activity.average_watts && (
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-                    <div>
-                      <div className="text-[10px] text-slate-400">Power Output</div>
-                      <div className="font-mono font-bold text-amber-300">
-                        {Math.round(activity.average_watts)} W avg
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activity.average_cadence && (
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-sky-400 shrink-0" />
-                    <div>
-                      <div className="text-[10px] text-slate-400">Cadence</div>
-                      <div className="font-mono font-bold text-sky-300">
-                        {Math.round(activity.average_cadence)} rpm
-                      </div>
-                    </div>
-                  </div>
-                )}
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
+                No streams recorded for this workout.
               </div>
             )}
 
+            {/* Description / Notes if available */}
             {description && (
               <div className="pt-2 border-t border-slate-800/60">
                 <span className="text-[11px] text-slate-400 block mb-1">Description / Notes:</span>
                 <p className="text-xs text-slate-300 whitespace-pre-wrap bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
                   {description}
                 </p>
-              </div>
-            )}
-
-            {availableStreamsList.length > 0 && (
-              <div className="text-[11px] text-slate-400">
-                Cached streams in IndexedDB: <span className="font-mono text-slate-300">{availableStreamsList.join(', ')}</span>
               </div>
             )}
           </div>
@@ -497,13 +704,24 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
         {/* Modal Footer / Action CTA */}
         <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCalibrationOpen(true)}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-400 hover:text-amber-300 text-xs font-bold transition-colors cursor-pointer border border-slate-700 flex items-center gap-1.5"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              <span>{hasCalibration ? 'Edit Calibration' : 'Fix Inaccurate Data'}</span>
+            </button>
+          </div>
 
           <button
             type="button"
@@ -534,6 +752,19 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Calibration Modal */}
+      {isCalibrationOpen && (
+        <ActivityCalibrationModal
+          isOpen={isCalibrationOpen}
+          activity={activity}
+          detailsRecord={detailsRecord}
+          onClose={() => setIsCalibrationOpen(false)}
+          onCalibrationSaved={(updatedRecord) => {
+            setDetailsRecord(updatedRecord);
+          }}
+        />
+      )}
     </div>
   );
 };

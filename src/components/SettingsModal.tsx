@@ -8,6 +8,9 @@ import {
   RotateCcw,
   Check,
   Sliders,
+  User,
+  Heart,
+  ChevronRight,
 } from 'lucide-react';
 
 export type DisplayDensity = 'standard' | 'compact' | 'comfortable';
@@ -24,6 +27,7 @@ interface SettingsModalProps {
   brandSubtitle: string;
   onSaveBrand: (title: string, subtitle: string) => void;
   onResetBrand: () => void;
+  onOpenAthleteProfile?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -37,6 +41,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   brandSubtitle,
   onSaveBrand,
   onResetBrand,
+  onOpenAthleteProfile,
 }) => {
   const [tempTitle, setTempTitle] = useState(brandTitle);
   const [tempSubtitle, setTempSubtitle] = useState(brandSubtitle);
@@ -203,7 +208,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </section>
 
-        {/* 3. App Name & Custom Branding */}
+        {/* 3. Athlete Physiology & Analysis Thresholds */}
+        {onOpenAthleteProfile && (
+          <section className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Heart className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Athlete Physiology & Thresholds</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Age, weight, HR zones, bike FTP, and running/swimming threshold paces
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenAthleteProfile();
+              }}
+              className="w-full p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between transition-colors cursor-pointer group"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                  <User className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <span className="text-xs font-bold text-white block group-hover:text-amber-400 transition-colors">
+                    Configure Physiological Metrics
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Powers accurate TSS, recovery time, and stream zones
+                  </span>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+            </button>
+          </section>
+        )}
+
+        {/* 4. App Name & Custom Branding */}
         <section className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <div>

@@ -19,6 +19,7 @@ import {
   LogOut,
   ChevronRight,
   Loader2,
+  Sliders,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -34,6 +35,8 @@ import {
   isActivityUnpublished,
   getLastStravaRefreshTime,
 } from '../utils/stravaActivities';
+import type { AthleteProfile } from '../types/athlete';
+import { formatSecondsToMinSec, calculateCss } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
 
 interface StravaActivitiesTabProps {
@@ -41,6 +44,7 @@ interface StravaActivitiesTabProps {
   athleteName: string | null;
   activities: StravaActivity[];
   activityDetails: Record<string, StravaActivityDetailsRecord>;
+  athleteProfile: AthleteProfile;
   loading: boolean;
   loadingMore: boolean;
   hasMore: boolean;
@@ -54,6 +58,7 @@ interface StravaActivitiesTabProps {
   onDisconnectGoogle: () => void;
   onOpenStravaSettings: () => void;
   onActivityPublished: (activityId: string) => void;
+  onOpenAthleteProfile?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -113,6 +118,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   athleteName,
   activities,
   activityDetails,
+  athleteProfile,
   loading,
   loadingMore,
   hasMore,
@@ -126,6 +132,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onDisconnectGoogle,
   onOpenStravaSettings,
   onActivityPublished,
+  onOpenAthleteProfile,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
@@ -285,6 +292,44 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         </div>
       </div>
 
+      {/* Athlete Physiology & Analysis Thresholds Strip */}
+      <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 overflow-x-auto scrollbar-none py-0.5">
+          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
+            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Run</span>
+            <span className="text-slate-300 font-bold">{formatSecondsToMinSec(athleteProfile.thresholdPaceRunOutdoorSec)}/km</span>
+            <span className="text-[10px] text-slate-500">out · {formatSecondsToMinSec(athleteProfile.thresholdPaceRunTreadmillSec)}/km mill</span>
+          </div>
+
+          <span className="text-slate-700 hidden sm:inline">|</span>
+
+          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
+            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300">Bike</span>
+            <span className="text-slate-300 font-bold">{athleteProfile.bikeFtp}W FTP</span>
+          </div>
+
+          <span className="text-slate-700 hidden sm:inline">|</span>
+
+          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
+            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300">Swim</span>
+            <span className="text-slate-300 font-bold">
+              {calculateCss(athleteProfile.swim100mTimeSec, athleteProfile.swim400mTimeSec).cssPaceFormatted} CSS
+            </span>
+          </div>
+        </div>
+
+        {onOpenAthleteProfile && (
+          <button
+            type="button"
+            onClick={onOpenAthleteProfile}
+            className="px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-xs font-bold border border-slate-700/80 flex items-center gap-1 transition-colors cursor-pointer shrink-0 ml-auto"
+          >
+            <Sliders className="w-3 h-3" />
+            <span>Edit Profile & Zones</span>
+          </button>
+        )}
+      </div>
+
       {/* Error state */}
       {error && (
         <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center justify-between gap-3">
@@ -385,17 +430,25 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
           {filteredActivities.map((act) => {
             const activityId = String(act.id);
             const classification = classifyActivity(act);
-            const metrics = formatSportMetrics(act);
-            const isNew = isActivityNew(act);
             const details = activityDetails[activityId];
+            const metrics = formatSportMetrics(act, details);
+            const isNew = isActivityNew(act);
             const isUnpublished = isActivityUnpublished(details);
-            const duration = act.moving_time || act.elapsed_time || 0;
+            const isIgnored = Boolean(details?.calibration?.isIgnoredFromTrainingStatus);
+            const hasCalibration = Boolean(details?.calibration);
+            const duration = details?.calibration?.calibratedMovingTimeSec ?? act.moving_time ?? act.elapsed_time ?? 0;
 
             return (
               <div
                 key={act.id}
                 onClick={() => setActiveModalActivity(act)}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all shadow-sm flex flex-col gap-3 group cursor-pointer active:scale-[0.99]"
+                className={`bg-slate-900 border rounded-2xl p-4 transition-all shadow-sm flex flex-col gap-3 group cursor-pointer active:scale-[0.99] ${
+                  isIgnored
+                    ? 'border-rose-950/50 opacity-60 hover:opacity-100 hover:border-rose-900/60'
+                    : hasCalibration
+                    ? 'border-amber-500/30 hover:border-amber-500/60'
+                    : 'border-slate-800 hover:border-slate-700'
+                }`}
               >
                 {/* Header row */}
                 <div className="flex items-start justify-between gap-3">
@@ -416,6 +469,17 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    {/* Ignored or Calibrated Badge */}
+                    {isIgnored ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] font-bold">
+                        <span>Ignored</span>
+                      </span>
+                    ) : hasCalibration ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-bold">
+                        <span>Calibrated</span>
+                      </span>
+                    ) : null}
+
                     {/* "New" badge stays for 24h even if published */}
                     {isNew && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-black uppercase tracking-wide">
@@ -527,10 +591,12 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
         isOpen={Boolean(activeModalActivity)}
         activity={activeModalActivity}
         stravaToken={stravaToken}
+        athleteProfile={athleteProfile}
         isGoogleConnected={isGoogleConnected}
         onConnectGoogle={onConnectGoogle}
         onClose={() => setActiveModalActivity(null)}
         onActivityPublished={onActivityPublished}
+        onOpenAthleteProfile={onOpenAthleteProfile}
       />
     </div>
   );
