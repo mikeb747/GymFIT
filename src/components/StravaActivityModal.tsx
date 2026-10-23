@@ -9,9 +9,7 @@ import {
   Activity,
   Heart,
   Zap,
-  Flame,
   Clock,
-  MapPin,
   TrendingUp,
   FileSpreadsheet,
   Check,
@@ -19,6 +17,7 @@ import {
   Loader2,
   Sparkles,
   UploadCloud,
+  Award,
 } from 'lucide-react';
 import type {
   StravaActivity,
@@ -33,6 +32,8 @@ import {
   saveStravaActivityDetails,
   getCachedStravaActivityRecord,
   markStravaActivityPublishedToGoogleSheets,
+  calculateActivityTSS,
+  getSwimPaceDetails,
 } from '../utils/stravaActivities';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
 
@@ -81,6 +82,7 @@ function getCategoryIcon(category: string, className = 'w-5 h-5') {
       return <Bike className={`${className} text-orange-400`} />;
     case 'Run':
       return <Footprints className={`${className} text-amber-400`} />;
+    case 'Gym':
     case 'Strength':
       return <Dumbbell className={`${className} text-emerald-400`} />;
     default:
@@ -125,7 +127,7 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
           return;
         }
 
-        // 2. If not cached and we have strava token, fetch automatically on modal open
+        // 2. If not cached and we have strava token, fetch on-demand
         if (stravaToken) {
           if (!isCancelled) setLoadingDetails(true);
           const fresh = await fetchStravaActivityDetails(stravaToken, activityId);
@@ -160,6 +162,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   const streams = detailsRecord?.streams as Record<string, { data?: any[] }> | undefined;
   const availableStreamsList = streams ? Object.keys(streams).filter((k) => streams[k]?.data?.length) : [];
+
+  // Calculate TSS
+  const tssResult = calculateActivityTSS(activity, detailsRecord || undefined);
+
+  // Swim Pace Details & Laps
+  const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
+
+  // Strict power metric rule: ONLY for Turbo Trainer or Bike!
+  const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
 
   const handleExportToSheets = async () => {
     if (!isGoogleConnected) {
@@ -288,11 +299,15 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </div>
 
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
-              <span className="text-[11px] font-medium text-slate-400">Elevation</span>
-              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
-                {activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor'}
+              <span className="text-[11px] font-medium text-slate-400">
+                {classification.category === 'Swim' ? 'Avg Pace / 100m' : 'Elevation'}
               </span>
-              {activity.max_speed ? (
+              <span className="text-sm sm:text-base font-bold font-mono text-white mt-1">
+                {classification.category === 'Swim'
+                  ? (swimPace?.pacePer100mFormatted || '0:00/100m')
+                  : (activity.total_elevation_gain ? `↑ ${Math.round(activity.total_elevation_gain)}m` : 'Flat / Indoor')}
+              </span>
+              {classification.category !== 'Swim' && activity.max_speed ? (
                 <span className="text-[10px] text-slate-500 font-mono">
                   max {(activity.max_speed * 3.6).toFixed(1)} kph
                 </span>
@@ -311,6 +326,68 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               ) : null}
             </div>
           </div>
+
+          {/* TSS (Training Stress Score) Metric Banner if available */}
+          {tssResult && (
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/30 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
+                  <Award className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                      Training Stress Score
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-amber-500/20 text-amber-200">
+                      {tssResult.type}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {tssResult.description}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-2xl font-black font-mono text-amber-400">
+                  {tssResult.tss}
+                </span>
+                <span className="text-[10px] text-slate-500 block font-sans font-bold">TSS</span>
+              </div>
+            </div>
+          )}
+
+          {/* Swim Moving Laps Breakdown if Swim activity and laps are present */}
+          {classification.category === 'Swim' && swimPace?.laps && swimPace.laps.length > 0 && (
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Waves className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Moving Laps ({swimPace.laps.length} Laps)</span>
+                </h4>
+                <span className="text-xs font-mono font-bold text-sky-400">
+                  Avg {swimPace.pacePer100mFormatted}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pt-1">
+                {swimPace.laps.map((lap) => (
+                  <div
+                    key={lap.lapIndex}
+                    className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs"
+                  >
+                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                      <span>Lap {lap.lapIndex}</span>
+                      <span>{lap.distanceM}m</span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                      <span>{formatDuration(lap.movingTimeSec)}</span>
+                      <span className="text-sky-300">{lap.pacePer100mFormatted}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Telemetry Streams & Details */}
           <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
@@ -344,7 +421,8 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                   </div>
                 )}
 
-                {activity.average_watts && (
+                {/* Power Output: STRICTLY FOR TURBO TRAINER OR BIKE */}
+                {isBikeOrTurbo && activity.average_watts && (
                   <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
                     <Zap className="w-4 h-4 text-amber-400 shrink-0" />
                     <div>

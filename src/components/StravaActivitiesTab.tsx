@@ -25,6 +25,7 @@ import type {
   StravaActivity,
   StravaActivityDetailsRecord,
   ActivityCategory,
+  ActivityFilterCategory,
 } from '../utils/stravaActivities';
 import {
   classifyActivity,
@@ -89,7 +90,7 @@ function getCategoryIcon(category: ActivityCategory, className = 'w-5 h-5') {
       return <Bike className={`${className} text-orange-400`} />;
     case 'Run':
       return <Footprints className={`${className} text-amber-400`} />;
-    case 'Strength':
+    case 'Gym':
       return <Dumbbell className={`${className} text-emerald-400`} />;
     default:
       return <Activity className={`${className} text-purple-400`} />;
@@ -126,24 +127,32 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
   onOpenStravaSettings,
   onActivityPublished,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<ActivityCategory | 'All'>('All');
+  const [selectedCategory, setSelectedCategory] = useState<ActivityFilterCategory>('All');
   const [activeModalActivity, setActiveModalActivity] = useState<StravaActivity | null>(null);
 
   const lastRefreshTime = getLastStravaRefreshTime();
   const lastRefreshFormatted = formatLastRefresh(lastRefreshTime);
 
-  // Filter activities by selected category
+  // Filter activities by selected category: All, Swim, Bike, Run, Gym
   const filteredActivities = useMemo(() => {
     if (selectedCategory === 'All') return activities;
     return activities.filter((act) => classifyActivity(act).category === selectedCategory);
   }, [activities, selectedCategory]);
 
-  // Category counts
+  // Category counts strictly for All, Swim, Bike, Run, Gym
   const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { All: activities.length, Swim: 0, Bike: 0, Run: 0, Strength: 0, Other: 0 };
+    const counts: Record<ActivityFilterCategory, number> = {
+      All: activities.length,
+      Swim: 0,
+      Bike: 0,
+      Run: 0,
+      Gym: 0,
+    };
     for (const act of activities) {
       const cat = classifyActivity(act).category;
-      counts[cat] = (counts[cat] || 0) + 1;
+      if (cat === 'Swim' || cat === 'Bike' || cat === 'Run' || cat === 'Gym') {
+        counts[cat] = (counts[cat] || 0) + 1;
+      }
     }
     return counts;
   }, [activities]);
@@ -294,10 +303,10 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
       )}
 
       {/* ========================================================= */}
-      {/* CATEGORY FILTER TABS: SWIM | BIKE | RUN | STRENGTH | OTHER */}
+      {/* CATEGORY FILTER TABS: All, Swim, Bike, Run, Gym (EXACT ORDER) */}
       {/* ========================================================= */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {(['All', 'Strength', 'Run', 'Bike', 'Swim', 'Other'] as const).map((cat) => {
+        {(['All', 'Swim', 'Bike', 'Run', 'Gym'] as const).map((cat) => {
           const count = categoryCounts[cat] || 0;
           const isActive = selectedCategory === cat;
           return (
@@ -305,7 +314,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
                 isActive
                   ? 'bg-amber-500 text-slate-950 shadow-md font-black'
                   : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800'
@@ -314,8 +323,7 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
               {cat === 'Swim' && <Waves className="w-3.5 h-3.5 text-sky-400" />}
               {cat === 'Bike' && <Bike className="w-3.5 h-3.5 text-orange-400" />}
               {cat === 'Run' && <Footprints className="w-3.5 h-3.5 text-amber-400" />}
-              {cat === 'Strength' && <Dumbbell className="w-3.5 h-3.5 text-emerald-400" />}
-              {cat === 'Other' && <Activity className="w-3.5 h-3.5 text-purple-400" />}
+              {cat === 'Gym' && <Dumbbell className="w-3.5 h-3.5 text-emerald-400" />}
               <span>{cat}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${

@@ -142,71 +142,88 @@ export function isActivityUnpublished(record?: StravaActivityDetailsRecord): boo
 // Activity Classification & Metrics
 // --------------------------------------------------------------------------
 
-export type ActivityCategory = 'Swim' | 'Bike' | 'Run' | 'Strength' | 'Other';
+// --------------------------------------------------------------------------
+// Activity Classification & Metrics (8 Specific Subtypes, 5 Filter Tabs)
+// --------------------------------------------------------------------------
+
+export type ActivityFilterCategory = 'All' | 'Swim' | 'Bike' | 'Run' | 'Gym';
+
+export type ActivityCategory = 'Swim' | 'Bike' | 'Run' | 'Gym' | 'Other';
+
+export type ActivitySubtype =
+  | 'Swim'
+  | 'Open Water Swim'
+  | 'Bike'
+  | 'Turbo Trainer'
+  | 'Run'
+  | 'Treadmill Run'
+  | 'Strength'
+  | 'Other';
 
 export interface ActivityClassification {
   category: ActivityCategory;
-  subType: string;
+  subType: ActivitySubtype;
   isOutdoor: boolean;
 }
 
+/**
+ * Strict 8-subtype classification:
+ * 1. Swim (Swim or Pool Swims)
+ * 2. Open Water Swim
+ * 3. Bike (Outdoors)
+ * 4. Turbo Trainer (Virtual ride or ride with trainer=true)
+ * 5. Run (Outdoors)
+ * 6. Treadmill Run (Virtual run or run with trainer=true)
+ * 7. Strength (Only Weight Training in Strava)
+ * 8. Other (Any other activity or exercise classes)
+ */
 export function classifyActivity(activity: StravaActivity): ActivityClassification {
-  const type = activity.type || '';
-  const sportType = activity.sport_type || type;
+  const rawType = (activity.type || '').trim().toLowerCase();
+  const rawSportType = (activity.sport_type || '').trim().toLowerCase();
   const isTrainer = Boolean(activity.trainer);
 
-  // 1. Swim
-  if (type === 'OpenWaterSwim' || sportType === 'OpenWaterSwim') {
+  const matches = (name: string) =>
+    rawType === name.toLowerCase() || rawSportType === name.toLowerCase();
+
+  // 1. Swim Family
+  if (matches('OpenWaterSwim')) {
     return { category: 'Swim', subType: 'Open Water Swim', isOutdoor: true };
   }
-  if (type === 'Swim' || sportType === 'Swim') {
-    return { category: 'Swim', subType: 'Pool Swim', isOutdoor: false };
+  if (matches('Swim')) {
+    return { category: 'Swim', subType: 'Swim', isOutdoor: false };
   }
 
-  // 2. Bike
-  if (isTrainer || type === 'VirtualRide' || sportType === 'VirtualRide') {
-    return { category: 'Bike', subType: 'Indoor Bike', isOutdoor: false };
-  }
-  if (
-    type === 'Ride' ||
-    type === 'GravelRide' ||
-    type === 'MountainBikeRide' ||
-    type === 'EBikeRide' ||
-    sportType === 'Ride' ||
-    sportType === 'GravelRide' ||
-    sportType === 'MountainBikeRide'
-  ) {
-    return { category: 'Bike', subType: 'Outdoor Bike', isOutdoor: true };
+  // 2. Strength Family (Strictly ONLY Weight Training in Strava!)
+  if (matches('WeightTraining')) {
+    return { category: 'Gym', subType: 'Strength', isOutdoor: false };
   }
 
-  // 3. Run
-  if (isTrainer || type === 'VirtualRun' || sportType === 'VirtualRun') {
+  // 3. Run Family (Strictly match Run or TrailRun)
+  const isRunBase = matches('Run') || matches('TrailRun');
+  const isVirtualRun = matches('VirtualRun');
+  if (isVirtualRun || (isRunBase && isTrainer)) {
     return { category: 'Run', subType: 'Treadmill Run', isOutdoor: false };
   }
-  if (
-    type === 'Run' ||
-    type === 'TrailRun' ||
-    sportType === 'Run' ||
-    sportType === 'TrailRun'
-  ) {
-    return { category: 'Run', subType: 'Outdoor Run', isOutdoor: true };
+  if (isRunBase) {
+    return { category: 'Run', subType: 'Run', isOutdoor: true };
   }
 
-  // 4. Strength
-  if (
-    type === 'WeightTraining' ||
-    type === 'Workout' ||
-    type === 'Crossfit' ||
-    sportType === 'WeightTraining' ||
-    sportType === 'Workout' ||
-    sportType === 'Crossfit'
-  ) {
-    return { category: 'Strength', subType: 'Strength Training', isOutdoor: false };
+  // 4. Bike Family (Strictly match Ride, GravelRide, MountainBikeRide, EBikeRide)
+  const isRideBase =
+    matches('Ride') ||
+    matches('GravelRide') ||
+    matches('MountainBikeRide') ||
+    matches('EBikeRide');
+  const isVirtualRide = matches('VirtualRide');
+  if (isVirtualRide || (isRideBase && isTrainer)) {
+    return { category: 'Bike', subType: 'Turbo Trainer', isOutdoor: false };
+  }
+  if (isRideBase) {
+    return { category: 'Bike', subType: 'Bike', isOutdoor: true };
   }
 
-  // 5. Other
-  const friendly = (sportType || type || 'Other').replace(/([a-z])([A-Z])/g, '$1 $2');
-  return { category: 'Other', subType: friendly, isOutdoor: false };
+  // 5. Other (Any other activity: Yoga, Walk, Hike, Rowing, Workout, Crossfit, etc.)
+  return { category: 'Other', subType: 'Other', isOutdoor: false };
 }
 
 export interface SportMetricsFormatted {
@@ -215,13 +232,21 @@ export interface SportMetricsFormatted {
   elevationLabel?: string;
 }
 
+/**
+ * Format sport-specific metrics:
+ * - Swimming: Pace per 100m, distance in meters
+ * - Bike & Turbo Trainer: Avg speed in kph, distance in km, elevation (and watts ONLY for bike/turbo)
+ * - Run & Treadmill Run: Avg pace in min/km, distance in km (NO power metrics!)
+ * - Strength: Workout duration, effort (NO power metrics!)
+ */
 export function formatSportMetrics(activity: StravaActivity): SportMetricsFormatted {
-  const { category } = classifyActivity(activity);
+  const { category, subType } = classifyActivity(activity);
   const distanceM = activity.distance || 0;
   const movingTimeSec = activity.moving_time || activity.elapsed_time || 0;
-  const elevationM = activity.total_elevation_gain && activity.total_elevation_gain > 0
-    ? Math.round(activity.total_elevation_gain)
-    : null;
+  const elevationM =
+    activity.total_elevation_gain && activity.total_elevation_gain > 0
+      ? Math.round(activity.total_elevation_gain)
+      : null;
 
   const elevationLabel = elevationM !== null ? `↑ ${elevationM}m` : undefined;
 
@@ -229,12 +254,12 @@ export function formatSportMetrics(activity: StravaActivity): SportMetricsFormat
     case 'Swim': {
       // Swimming: Pace per 100m
       if (distanceM > 0 && movingTimeSec > 0) {
-        const secPer100m = Math.round((movingTimeSec / distanceM) * 100);
+        const secPer100m = (movingTimeSec / distanceM) * 100;
         const mins = Math.floor(secPer100m / 60);
-        const secs = secPer100m % 60;
+        const secs = Math.round(secPer100m % 60);
         const paceStr = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
         return {
-          primaryMetricLabel: `${(distanceM).toFixed(0)}m`,
+          primaryMetricLabel: `${Math.round(distanceM)}m`,
           secondaryMetricLabel: paceStr,
         };
       }
@@ -242,44 +267,46 @@ export function formatSportMetrics(activity: StravaActivity): SportMetricsFormat
     }
 
     case 'Bike': {
-      // Cycling: Average speed in km/h (kph), elevation in meters
+      // Cycling (Bike or Turbo Trainer): Average speed in km/h (kph)
       if (distanceM > 0 && movingTimeSec > 0) {
         const kph = ((distanceM / 1000) / (movingTimeSec / 3600)).toFixed(1);
         const distanceKm = (distanceM / 1000).toFixed(1);
+        // Only show watts for Turbo Trainer or Bike
+        const wattsLabel = activity.average_watts ? `${Math.round(activity.average_watts)}W avg` : `${kph} kph`;
         return {
           primaryMetricLabel: `${distanceKm} km`,
-          secondaryMetricLabel: `${kph} kph`,
-          elevationLabel,
+          secondaryMetricLabel: activity.average_watts ? `${kph} kph · ${wattsLabel}` : `${kph} kph`,
+          elevationLabel: subType === 'Turbo Trainer' ? undefined : elevationLabel,
         };
       }
       return {
-        primaryMetricLabel: `${(distanceM / 1000).toFixed(1)} km`,
-        elevationLabel,
+        primaryMetricLabel: distanceM > 0 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(movingTimeSec / 60)} min`,
+        elevationLabel: subType === 'Turbo Trainer' ? undefined : elevationLabel,
       };
     }
 
     case 'Run': {
-      // Running: Average pace in min/km, elevation in meters
+      // Running (Run or Treadmill Run): Average pace in min/km (STRICTLY NO POWER)
       if (distanceM > 0 && movingTimeSec > 0) {
-        const secPerKm = Math.round(movingTimeSec / (distanceM / 1000));
+        const secPerKm = movingTimeSec / (distanceM / 1000);
         const mins = Math.floor(secPerKm / 60);
-        const secs = secPerKm % 60;
+        const secs = Math.round(secPerKm % 60);
         const paceStr = `${mins}:${secs.toString().padStart(2, '0')}/km`;
         const distanceKm = (distanceM / 1000).toFixed(2);
         return {
           primaryMetricLabel: `${distanceKm} km`,
           secondaryMetricLabel: paceStr,
-          elevationLabel,
+          elevationLabel: subType === 'Treadmill Run' ? undefined : elevationLabel,
         };
       }
       return {
         primaryMetricLabel: `${(distanceM / 1000).toFixed(2)} km`,
-        elevationLabel,
+        elevationLabel: subType === 'Treadmill Run' ? undefined : elevationLabel,
       };
     }
 
-    case 'Strength': {
-      // Strength: Duration & sets/effort
+    case 'Gym': {
+      // Strength (Weight Training): Duration & sets/effort (STRICTLY NO POWER)
       const mins = Math.round(movingTimeSec / 60);
       return {
         primaryMetricLabel: `${mins} min workout`,
@@ -300,6 +327,183 @@ export function formatSportMetrics(activity: StravaActivity): SportMetricsFormat
       };
     }
   }
+}
+
+export interface SwimPaceDetails {
+  pacePer100mFormatted: string;
+  paceSecondsPer100m: number;
+  totalDistanceM: number;
+  movingTimeSec: number;
+  laps?: Array<{
+    lapIndex: number;
+    distanceM: number;
+    movingTimeSec: number;
+    pacePer100mFormatted: string;
+  }>;
+}
+
+/**
+ * Calculates Swim pace per 100m using moving laps if available, falling back to overall moving time / distance
+ */
+export function getSwimPaceDetails(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord
+): SwimPaceDetails | null {
+  const { category } = classifyActivity(activity);
+  if (category !== 'Swim') return null;
+
+  const rawLaps = (details?.activity?.laps as any[]) || [];
+  const validMovingLaps = rawLaps.filter(
+    (lap) =>
+      typeof lap?.distance === 'number' &&
+      lap.distance > 0 &&
+      typeof lap?.moving_time === 'number' &&
+      lap.moving_time > 0
+  );
+
+  let totalDist = activity.distance || 0;
+  let totalMovingTime = activity.moving_time || activity.elapsed_time || 0;
+
+  // If detailed moving laps are available, calculate cumulative moving lap metrics
+  if (validMovingLaps.length > 0) {
+    const sumLapTime = validMovingLaps.reduce((acc, l) => acc + l.moving_time, 0);
+    const sumLapDist = validMovingLaps.reduce((acc, l) => acc + l.distance, 0);
+    if (sumLapDist > 0 && sumLapTime > 0) {
+      totalDist = sumLapDist;
+      totalMovingTime = sumLapTime;
+    }
+  }
+
+  if (totalDist <= 0 || totalMovingTime <= 0) return null;
+
+  const secPer100m = (totalMovingTime / totalDist) * 100;
+  const mins = Math.floor(secPer100m / 60);
+  const secs = Math.round(secPer100m % 60);
+  const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
+
+  const lapBreakdown = validMovingLaps.map((lap, idx) => {
+    const lapSecPer100m = (lap.moving_time / lap.distance) * 100;
+    const lMins = Math.floor(lapSecPer100m / 60);
+    const lSecs = Math.round(lapSecPer100m % 60);
+    return {
+      lapIndex: idx + 1,
+      distanceM: Math.round(lap.distance),
+      movingTimeSec: Math.round(lap.moving_time),
+      pacePer100mFormatted: `${lMins}:${lSecs.toString().padStart(2, '0')}/100m`,
+    };
+  });
+
+  return {
+    pacePer100mFormatted: paceFormatted,
+    paceSecondsPer100m: secPer100m,
+    totalDistanceM: Math.round(totalDist),
+    movingTimeSec: Math.round(totalMovingTime),
+    laps: lapBreakdown.length > 0 ? lapBreakdown : undefined,
+  };
+}
+
+export interface TSSCalculationResult {
+  tss: number;
+  type: 'Power TSS' | 'hrTSS' | 'sTSS' | 'Relative Effort';
+  description: string;
+}
+
+/**
+ * Calculates Training Stress Score (TSS):
+ * - Turbo Trainer & Bike with power: Power TSS based on Normalized Power and FTP (default 200W)
+ * - Swim: sTSS based on pace / CSS pace (default 1:50/100m)
+ * - Run / Treadmill / Bike with HR: hrTSS based on LTHR
+ * - Fallback: Strava suffer_score (Relative Effort)
+ */
+export function calculateActivityTSS(
+  activity: StravaActivity,
+  details?: StravaActivityDetailsRecord,
+  userFtp = 200,
+  userLthrRun = 165,
+  userLthrBike = 160
+): TSSCalculationResult | null {
+  const { category, subType } = classifyActivity(activity);
+  const movingTimeSec = activity.moving_time || activity.elapsed_time || 0;
+  if (movingTimeSec <= 60) return null;
+
+  const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
+
+  // 1. Cycling Power TSS (STRICTLY for Turbo Trainer or Bike only!)
+  if (subType === 'Turbo Trainer' || subType === 'Bike') {
+    let np = 0;
+    if (streams?.watts?.data && streams.watts.data.length >= 30) {
+      const rawWatts = streams.watts.data.map((w: any) =>
+        typeof w === 'number' && w > 0 ? w : 0
+      );
+      // Calculate 30s rolling average
+      const rolling30: number[] = [];
+      let windowSum = 0;
+      for (let i = 0; i < rawWatts.length; i++) {
+        windowSum += rawWatts[i];
+        if (i >= 30) {
+          windowSum -= rawWatts[i - 30];
+          rolling30.push(windowSum / 30);
+        }
+      }
+      if (rolling30.length > 0) {
+        const sum4th = rolling30.reduce((acc, val) => acc + Math.pow(val, 4), 0);
+        np = Math.pow(sum4th / rolling30.length, 0.25);
+      }
+    }
+
+    if (!np && activity.average_watts && activity.average_watts > 0) {
+      np = activity.average_watts * 1.05;
+    }
+
+    if (np > 0 && userFtp > 0) {
+      const ifFactor = np / userFtp;
+      const tss = ((movingTimeSec * np * ifFactor) / (userFtp * 3600)) * 100;
+      return {
+        tss: Math.round(tss),
+        type: 'Power TSS',
+        description: `Normalized Power ${Math.round(np)}W (FTP ${userFtp}W, IF ${ifFactor.toFixed(2)})`,
+      };
+    }
+  }
+
+  // 2. Swim TSS (sTSS) for Swim or Open Water Swim
+  if (category === 'Swim') {
+    const swimPace = getSwimPaceDetails(activity, details);
+    if (swimPace && swimPace.paceSecondsPer100m > 0) {
+      // Default CSS (Critical Swim Speed) pace = 110 sec / 100m (~1:50/100m)
+      const cssSec = 110;
+      const ifSwim = cssSec / swimPace.paceSecondsPer100m;
+      const sTSS = (movingTimeSec * Math.pow(ifSwim, 3) / 3600) * 100;
+      return {
+        tss: Math.round(sTSS),
+        type: 'sTSS',
+        description: `Swim TSS based on ${swimPace.pacePer100mFormatted} pace`,
+      };
+    }
+  }
+
+  // 3. Heart Rate TSS (hrTSS) for Run, Treadmill Run, Bike without power, or Cardio
+  if (activity.average_heartrate && activity.average_heartrate > 40) {
+    const lthr = category === 'Run' ? userLthrRun : userLthrBike;
+    const ifHr = activity.average_heartrate / lthr;
+    const hrTss = ((movingTimeSec * activity.average_heartrate * ifHr) / (lthr * 3600)) * 100;
+    return {
+      tss: Math.round(hrTss),
+      type: 'hrTSS',
+      description: `hrTSS based on avg HR ${Math.round(activity.average_heartrate)} bpm (LTHR ${lthr})`,
+    };
+  }
+
+  // 4. Strava Suffer Score fallback
+  if (activity.suffer_score && activity.suffer_score > 0) {
+    return {
+      tss: activity.suffer_score,
+      type: 'Relative Effort',
+      description: 'Strava Relative Effort score',
+    };
+  }
+
+  return null;
 }
 
 // --------------------------------------------------------------------------

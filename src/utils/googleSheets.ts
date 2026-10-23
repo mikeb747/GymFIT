@@ -1,6 +1,6 @@
 import { getGoogleAccessToken } from './googleAuth';
 import type { StravaActivity, StravaActivityDetailsRecord } from './stravaActivities';
-import { classifyActivity, formatSportMetrics } from './stravaActivities';
+import { classifyActivity, formatSportMetrics, calculateActivityTSS } from './stravaActivities';
 
 export const GOOGLE_SHEETS_CONFIG = {
   STORAGE_KEYS: {
@@ -143,6 +143,7 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
                     { userEnteredValue: { stringValue: 'Max HR (bpm)' } },
                     { userEnteredValue: { stringValue: 'Avg Watts (W)' } },
                     { userEnteredValue: { stringValue: 'Avg Cadence (rpm)' } },
+                    { userEnteredValue: { stringValue: 'TSS (Training Stress Score)' } },
                     { userEnteredValue: { stringValue: 'Calories (kcal)' } },
                     { userEnteredValue: { stringValue: 'GymFIT Breakdown / Notes' } },
                     { userEnteredValue: { stringValue: 'Strava URL' } },
@@ -246,7 +247,21 @@ export async function appendActivityToTrainingLog(
 
   // Calculate stream aggregates if available
   const streams = details?.streams as Record<string, { data?: any[] }> | undefined;
-  let avgWatts = activity.average_watts ? Math.round(activity.average_watts).toString() : '';
+  
+  // Power metrics strictly for Turbo Trainer or Bike only!
+  const isBikeOrTurbo = classification.subType === 'Turbo Trainer' || classification.subType === 'Bike';
+  let avgWatts = '';
+  if (isBikeOrTurbo) {
+    if (activity.average_watts) {
+      avgWatts = Math.round(activity.average_watts).toString();
+    } else if (streams?.watts?.data && streams.watts.data.length > 0) {
+      const watts = streams.watts.data.filter((n: any) => typeof n === 'number' && n > 0);
+      if (watts.length > 0) {
+        avgWatts = Math.round(watts.reduce((a: number, b: number) => a + b, 0) / watts.length).toString();
+      }
+    }
+  }
+
   let avgCadence = activity.average_cadence ? Math.round(activity.average_cadence).toString() : '';
   let avgHr = activity.average_heartrate ? Math.round(activity.average_heartrate).toString() : '';
   let maxHr = activity.max_heartrate ? Math.round(activity.max_heartrate).toString() : '';
@@ -259,12 +274,6 @@ export async function appendActivityToTrainingLog(
         maxHr = Math.max(...hrs).toString();
       }
     }
-    if (!avgWatts && streams.watts?.data && streams.watts.data.length > 0) {
-      const watts = streams.watts.data.filter((n: any) => typeof n === 'number' && n > 0);
-      if (watts.length > 0) {
-        avgWatts = Math.round(watts.reduce((a: number, b: number) => a + b, 0) / watts.length).toString();
-      }
-    }
     if (!avgCadence && streams.cadence?.data && streams.cadence.data.length > 0) {
       const cadences = streams.cadence.data.filter((n: any) => typeof n === 'number' && n > 0);
       if (cadences.length > 0) {
@@ -272,6 +281,10 @@ export async function appendActivityToTrainingLog(
       }
     }
   }
+
+  // Calculate TSS
+  const tssResult = calculateActivityTSS(activity, details);
+  const tssValue = tssResult ? `${tssResult.tss} (${tssResult.type})` : '';
 
   const rawDescription = (details?.activity?.description as string) || '';
   const calories = (details?.activity?.calories as number) || (activity as any).calories || '';
@@ -293,6 +306,7 @@ export async function appendActivityToTrainingLog(
     maxHr,
     avgWatts,
     avgCadence,
+    tssValue,
     calories ? Math.round(Number(calories)).toString() : '',
     rawDescription.slice(0, 500),
     stravaUrl,
