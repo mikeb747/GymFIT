@@ -20,7 +20,6 @@ import { WeightScrollPicker } from './components/WeightScrollPicker';
 import { ExercisePickerModal } from './components/ExercisePickerModal';
 import { WorkoutSummaryModal } from './components/WorkoutSummaryModal';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
-import { SettingsModal } from './components/SettingsModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
 import type { ProfileTab } from './components/AthleteProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
@@ -164,7 +163,6 @@ export default function App() {
     } catch {}
   };
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAthleteProfileOpen, setIsAthleteProfileOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<ProfileTab>('settings');
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => loadAthleteProfile());
@@ -1253,19 +1251,13 @@ export default function App() {
       {/* ========================================================= */}
       <header className="sticky top-0 z-40 bg-[#090A0F]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          {/* Brand Wordmark & Icon (Clicking opens Settings) */}
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            title="Open Settings"
-            aria-label="Open Settings"
-            className="flex items-center gap-2.5 cursor-pointer select-none group active:scale-[0.98] transition-transform text-left p-1 -m-1 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-          >
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/10 group-hover:brightness-110">
+          {/* Brand Wordmark & Icon */}
+          <div className="flex items-center gap-2.5 select-none text-left p-1 -m-1">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/10">
               <Sliders className="w-4 h-4 stroke-[2.5]" />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-sm sm:text-base font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors leading-snug">
+              <span className="text-sm sm:text-base font-extrabold tracking-tight text-white leading-snug">
                 {brandTitle}
               </span>
               {brandSubtitle && (
@@ -1274,7 +1266,7 @@ export default function App() {
                 </span>
               )}
             </div>
-          </button>
+          </div>
 
           {/* Action cluster */}
           <div className="flex items-center gap-2">
@@ -1881,41 +1873,6 @@ export default function App() {
       {/* MODALS */}
       {/* ========================================================= */}
 
-      {/* Settings Modal (Theme, Display Density & Preferences) */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        theme={theme}
-        onThemeChanged={handleThemeChanged}
-        displayDensity={displayDensity}
-        onDensityChanged={handleDensityChanged}
-        brandTitle={brandTitle}
-        brandSubtitle={brandSubtitle}
-        onSaveBrand={(title, subtitle) => {
-          setBrandTitle(title);
-          setBrandSubtitle(subtitle);
-          localStorage.setItem(STORAGE_KEYS.BRAND_TITLE, title);
-          localStorage.setItem(STORAGE_KEYS.BRAND_SUBTITLE, subtitle);
-        }}
-        onResetBrand={() => {
-          setBrandTitle('GymFIT');
-          setBrandSubtitle('Workout Log & Strava Uploader');
-          localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
-          localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
-        }}
-        heroEyebrow={heroEyebrow}
-        heroHeading={heroHeading}
-        heroDescription={heroDescription}
-        onSaveHeroText={(eyebrow, heading, desc) => {
-          setHeroEyebrow(eyebrow);
-          setHeroHeading(heading);
-          setHeroDescription(desc);
-          localStorage.setItem(STORAGE_KEYS.HERO_EYEBROW, eyebrow);
-          localStorage.setItem(STORAGE_KEYS.HERO_HEADING, heading);
-          localStorage.setItem(STORAGE_KEYS.HERO_DESCRIPTION, desc);
-        }}
-        onResetHeroText={handleResetHeroText}
-      />
 
       {/* Athlete Physiology, Zones & Unified Settings Modal */}
       <AthleteProfileModal

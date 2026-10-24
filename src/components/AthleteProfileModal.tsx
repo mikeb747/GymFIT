@@ -27,7 +27,8 @@ import {
   getAthleteHeartRateZones,
   calculateAgeFromBirthDate,
 } from '../types/athlete';
-import type { AppTheme, DisplayDensity } from './SettingsModal';
+export type AppTheme = 'dark' | 'light';
+export type DisplayDensity = 'standard' | 'compact' | 'comfortable';
 
 export type ProfileTab = 'settings' | 'physiology' | 'running' | 'cycling' | 'swimming' | 'zones';
 
@@ -391,7 +392,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     >
       <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col gap-3.5 sm:gap-4 text-slate-100 max-h-[92vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+        <div className="flex items-center justify-between pb-1.5 sm:pb-2 shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
               <SettingsIcon className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1398,7 +1399,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                   <span>Saved!</span>
                 </>
               ) : (
-                <span>Save Physiology</span>
+                <span>Save</span>
               )}
             </button>
           </div>
