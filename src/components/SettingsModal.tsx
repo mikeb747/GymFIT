@@ -27,6 +27,11 @@ interface SettingsModalProps {
   brandSubtitle: string;
   onSaveBrand: (title: string, subtitle: string) => void;
   onResetBrand: () => void;
+  heroEyebrow?: string;
+  heroHeading?: string;
+  heroDescription?: string;
+  onSaveHeroText?: (eyebrow: string, heading: string, description: string) => void;
+  onResetHeroText?: () => void;
   onOpenAthleteProfile?: () => void;
 }
 
@@ -41,6 +46,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   brandSubtitle,
   onSaveBrand,
   onResetBrand,
+  heroEyebrow = 'LOG · PUBLISH · REPEAT',
+  heroHeading = 'Ready to Train?',
+  heroDescription = 'Log every set as you train, starting from last session’s weights. Finished sessions automatically compile into valid FIT files with native sets and reps.',
+  onSaveHeroText,
+  onResetHeroText,
   onOpenAthleteProfile,
 }) => {
   const [tempTitle, setTempTitle] = useState(brandTitle);
@@ -48,11 +58,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isEditingBrand, setIsEditingBrand] = useState(false);
   const [brandSavedFeedback, setBrandSavedFeedback] = useState(false);
 
+  // Hero / Studio Text Customization
+  const [tempHeroEyebrow, setTempHeroEyebrow] = useState(heroEyebrow);
+  const [tempHeroHeading, setTempHeroHeading] = useState(heroHeading);
+  const [tempHeroDescription, setTempHeroDescription] = useState(heroDescription);
+  const [isEditingHeroText, setIsEditingHeroText] = useState(false);
+  const [heroSavedFeedback, setHeroSavedFeedback] = useState(false);
+
   // Synchronize internal state when modal opens or props change
   React.useEffect(() => {
     setTempTitle(brandTitle);
     setTempSubtitle(brandSubtitle);
-  }, [brandTitle, brandSubtitle, isOpen]);
+    setTempHeroEyebrow(heroEyebrow);
+    setTempHeroHeading(heroHeading);
+    setTempHeroDescription(heroDescription);
+  }, [brandTitle, brandSubtitle, heroEyebrow, heroHeading, heroDescription, isOpen]);
 
   if (!isOpen) return null;
 
@@ -70,6 +90,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTempTitle('GymFIT');
     setTempSubtitle('Workout Log & Strava Uploader');
     setIsEditingBrand(false);
+  };
+
+  const handleSaveStudioText = () => {
+    const finalEyebrow = tempHeroEyebrow.trim() || 'LOG · PUBLISH · REPEAT';
+    const finalHeading = tempHeroHeading.trim() || 'Ready to Train?';
+    const finalDesc =
+      tempHeroDescription.trim() ||
+      'Log every set as you train, starting from last session’s weights. Finished sessions automatically compile into valid FIT files with native sets and reps.';
+    onSaveHeroText?.(finalEyebrow, finalHeading, finalDesc);
+    setIsEditingHeroText(false);
+    setHeroSavedFeedback(true);
+    setTimeout(() => setHeroSavedFeedback(false), 2000);
+  };
+
+  const handleResetStudioText = () => {
+    onResetHeroText?.();
+    setTempHeroEyebrow('LOG · PUBLISH · REPEAT');
+    setTempHeroHeading('Ready to Train?');
+    setTempHeroDescription(
+      'Log every set as you train, starting from last session’s weights. Finished sessions automatically compile into valid FIT files with native sets and reps.'
+    );
+    setIsEditingHeroText(false);
   };
 
   return (
@@ -208,48 +250,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </section>
 
-        {/* 3. Athlete Physiology & Analysis Thresholds */}
-        {onOpenAthleteProfile && (
-          <section className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Heart className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Athlete Physiology & Thresholds</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Age, weight, HR zones, bike FTP, and running/swimming threshold paces
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenAthleteProfile();
-              }}
-              className="w-full p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
-                  <User className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <span className="text-xs font-bold text-white block group-hover:text-amber-400 transition-colors">
-                    Configure Physiological Metrics
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    Powers accurate TSS, recovery time, and stream zones
-                  </span>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
-            </button>
-          </section>
-        )}
-
-        {/* 4. App Name & Custom Branding */}
+        {/* 3. App Name & Custom Branding */}
         <section className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -325,6 +326,104 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer"
                 >
                   Save Title
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 4. Customize Studio Text (Directly below App Title & Branding) */}
+        <section className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
+                Customize Studio Text
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Headline and description text for your workout dashboard
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsEditingHeroText(!isEditingHeroText)}
+              className="text-xs text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>{isEditingHeroText ? 'Close' : 'Edit'}</span>
+            </button>
+          </div>
+
+          {!isEditingHeroText ? (
+            <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-400 block font-mono">
+                  {heroEyebrow}
+                </span>
+                <span className="text-sm font-bold text-white block">{heroHeading}</span>
+                <span className="text-xs text-slate-400 line-clamp-1 block">{heroDescription}</span>
+              </div>
+              {heroSavedFeedback && (
+                <span className="text-xs font-bold text-emerald-400 flex items-center gap-1 shrink-0 ml-2">
+                  <Check className="w-3.5 h-3.5" /> Saved
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                  Eyebrow Label
+                </label>
+                <input
+                  type="text"
+                  value={tempHeroEyebrow}
+                  onChange={(e) => setTempHeroEyebrow(e.target.value)}
+                  placeholder="e.g. LOG · PUBLISH · REPEAT"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                  Main Heading
+                </label>
+                <input
+                  type="text"
+                  value={tempHeroHeading}
+                  onChange={(e) => setTempHeroHeading(e.target.value)}
+                  placeholder="e.g. Ready to Train?"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-sm font-bold focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                  Description Text
+                </label>
+                <textarea
+                  rows={2}
+                  value={tempHeroDescription}
+                  onChange={(e) => setTempHeroDescription(e.target.value)}
+                  placeholder="e.g. Log every set as you train..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-amber-400 resize-none leading-relaxed"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleResetStudioText}
+                  className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Default</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveStudioText}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer"
+                >
+                  Save Studio Text
                 </button>
               </div>
             </div>

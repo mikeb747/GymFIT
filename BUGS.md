@@ -51,3 +51,8 @@ open until fixed and verified.
 9. **Overall App Layout & Function Integration:** Unify GymFIT strength workout builder and Strava endurance analysis side into a cohesive single-pane dashboard (connecting gym strength work directly into overall athlete training load and recovery).
 10. **Time/Distance Mode Graph Investigation:** Investigate visual similarity between Time and Distance modes on steady-paced workouts and ensure distinct tick intervals and axes.
 11. **Time Formatting Uniformity:** Enforce format rule across all displays: anything 1 minute or above displays minutes and seconds (e.g. `1m 00s`, `1m 24s`, `25m 05s`).
+12. **Activity-Specific Zones Preview:** Move the "Zones Preview" into each individual activity type tab. Add live previews for different zones: pace, power, and heart rate.
+13. **Display Density Fine-Tuning:** Replace static preset density buttons with a continuous slider from 70% to 130% UI scaling.
+14. **Direct Studio Text Customization:** Move "Customize Studio Text" directly into Settings right below "App Title & Branding", eliminating the 600ms long press.
+15. **Ignore Lap Support for All Sports:** Extend the lap-ignoring and dynamic recalculation feature from swimming to running, cycling, and other activity types.
+16. **Cycling Minimum Cadence & Torque Detection:** Remove the minimum cadence filter for cycling; instead, introduce torque/pedaling force detection.

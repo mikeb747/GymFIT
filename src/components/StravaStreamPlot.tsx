@@ -122,15 +122,16 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     }
 
     if (streams?.cadence?.data && streams.cadence.data.length > 5) {
+      const isRun = classification.category === 'Run';
       list.push({
         key: 'cadence',
-        label: 'Cadence',
-        unit: 'rpm',
+        label: isRun ? 'Cadence (spm)' : 'Cadence',
+        unit: isRun ? 'spm' : 'rpm',
         color: '#a855f7', // purple-500
         gradientFrom: '#a855f7',
         gradientTo: '#581c87',
         icon: <TrendingUp className="w-3.5 h-3.5 text-purple-400" />,
-        formatValue: (v) => `${Math.round(v)} rpm`,
+        formatValue: (v) => `${Math.round(v)} ${isRun ? 'spm' : 'rpm'}`,
       });
     }
 
@@ -170,15 +171,20 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     let maxVal = -Infinity;
     let sumVal = 0;
     let countVal = 0;
+    const isRun = classification.category === 'Run';
 
     for (let i = 0; i < rawValues.length; i += step) {
-      const val = typeof rawValues[i] === 'number' ? rawValues[i] : 0;
+      let val = typeof rawValues[i] === 'number' ? rawValues[i] : 0;
+      if (activeConfig.key === 'cadence' && isRun) {
+        val = val * 2; // Strava reports single-leg revolutions (rpm); double for strides/steps per minute (spm)
+      }
       const t = timeData[i] ?? (i > 0 ? (timeData[timeData.length - 1] / rawValues.length) * i : 0);
       const d = distData[i] ?? 0;
 
       // Filter extreme outliers
       if (activeConfig.key === 'heartrate' && (val < 30 || val > 240)) continue;
       if (activeConfig.key === 'watts' && (val < 0 || val > 2000)) continue;
+      if (activeConfig.key === 'cadence' && (val < 0 || val > 300)) continue;
 
       if (val < minVal) minVal = val;
       if (val > maxVal) maxVal = val;
@@ -378,22 +384,25 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     return Math.round(gain);
   }, [activity.total_elevation_gain, streams?.altitude?.data]);
 
-  // Active Minimum Cadence (for cycling: when power is in Zone 2+ >= 55% FTP and pedaling > 30 rpm)
+  // Active Minimum Cadence (for cycling: when power is in Zone 2+ >= 55% FTP and pedaling > 30 rpm; for running: active moving spm > 70)
   const activeMinCadence = useMemo(() => {
-    const cadData: number[] = streams?.cadence?.data || [];
-    if (cadData.length === 0) return 0;
+    const rawCadData: number[] = streams?.cadence?.data || [];
+    if (rawCadData.length === 0) return 0;
+    const isRun = classification.category === 'Run';
+    const cadData = isRun ? rawCadData.map((c) => c * 2) : rawCadData;
     const wattsData: number[] = streams?.watts?.data || [];
     const z2ThresholdWatts = (athleteProfile.bikeFtp || 310) * 0.55;
 
-    if (isBikeOrTurbo && wattsData.length === cadData.length) {
-      const z2Cadences = cadData.filter((cad, i) => wattsData[i] >= z2ThresholdWatts && cad > 30);
+    if (isBikeOrTurbo && wattsData.length === rawCadData.length) {
+      const z2Cadences = rawCadData.filter((cad, i) => wattsData[i] >= z2ThresholdWatts && cad > 30);
       if (z2Cadences.length > 0) {
         return Math.min(...z2Cadences);
       }
     }
-    const activeCad = cadData.filter((c) => c > 35);
+    const minThreshold = isRun ? 70 : 35;
+    const activeCad = cadData.filter((c) => c > minThreshold);
     return activeCad.length > 0 ? Math.min(...activeCad) : Math.round(chartData?.minVal || 0);
-  }, [streams?.cadence?.data, streams?.watts?.data, athleteProfile.bikeFtp, isBikeOrTurbo, chartData?.minVal]);
+  }, [streams?.cadence?.data, streams?.watts?.data, athleteProfile.bikeFtp, isBikeOrTurbo, classification.category, chartData?.minVal]);
 
   // Active Minimum Speed (moving > 5 kph)
   const activeMinSpeedKph = useMemo(() => {
@@ -495,22 +504,24 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     }
 
     if (selectedMetric === 'cadence') {
+      const isRun = classification.category === 'Run';
+      const cadenceUnit = isRun ? 'spm' : 'rpm';
       return [
         {
-          label: isBikeOrTurbo ? 'Active Min (Z2+)' : 'Active Min',
-          value: activeMinCadence > 0 ? `${activeMinCadence} rpm` : '--',
+          label: isBikeOrTurbo ? 'Active Min (Z2+)' : isRun ? 'Active Min (>70spm)' : 'Active Min',
+          value: activeMinCadence > 0 ? `${activeMinCadence} ${cadenceUnit}` : '--',
           sub: isBikeOrTurbo ? `Power ≥ ${Math.round((athleteProfile.bikeFtp || 310) * 0.55)}W` : 'Moving cadence',
           color: 'text-white',
         },
         {
-          label: 'Average Cadence',
-          value: `${Math.round(chartData.avgVal)} rpm`,
+          label: isRun ? 'Average Cadence' : 'Average Cadence',
+          value: `${Math.round(chartData.avgVal)} ${cadenceUnit}`,
           sub: 'Overall session avg',
           color: 'text-amber-300',
         },
         {
           label: 'Max Cadence',
-          value: `${Math.round(chartData.maxVal)} rpm`,
+          value: `${Math.round(chartData.maxVal)} ${cadenceUnit}`,
           sub: 'Peak cadence observed',
           color: 'text-white',
         },
@@ -754,7 +765,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             fill="#64748b"
             fontFamily="monospace"
           >
-            {activeConfig.formatValue(effectiveMax, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm/g, '')}
+            {activeConfig.formatValue(effectiveMax, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm| spm/g, '')}
           </text>
 
           <line
@@ -774,7 +785,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             fill="#64748b"
             fontFamily="monospace"
           >
-            {activeConfig.formatValue((effectiveMax + effectiveMin) / 2, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm/g, '')}
+            {activeConfig.formatValue((effectiveMax + effectiveMin) / 2, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm| spm/g, '')}
           </text>
 
           <line
@@ -793,7 +804,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             fill="#64748b"
             fontFamily="monospace"
           >
-            {activeConfig.formatValue(effectiveMin, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm/g, '')}
+            {activeConfig.formatValue(effectiveMin, classification.category).replace(/ bpm| W| kph|\/km|\/100m| m| rpm| spm/g, '')}
           </text>
 
           {/* X-axis labels */}

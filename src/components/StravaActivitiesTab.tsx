@@ -19,7 +19,6 @@ import {
   LogOut,
   ChevronRight,
   Loader2,
-  Sliders,
 } from 'lucide-react';
 import { StravaIcon } from './StravaIcon';
 import type {
@@ -36,7 +35,6 @@ import {
   getLastStravaRefreshTime,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
-import { formatSecondsToMinSec, calculateCss } from '../types/athlete';
 import { StravaActivityModal } from './StravaActivityModal';
 
 interface StravaActivitiesTabProps {
@@ -290,44 +288,6 @@ export const StravaActivitiesTab: React.FC<StravaActivitiesTabProps> = ({
             </button>
           )}
         </div>
-      </div>
-
-      {/* Athlete Physiology & Analysis Thresholds Strip */}
-      <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 overflow-x-auto scrollbar-none py-0.5">
-          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
-            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Run</span>
-            <span className="text-slate-300 font-bold">{formatSecondsToMinSec(athleteProfile.thresholdPaceRunOutdoorSec)}/km</span>
-            <span className="text-[10px] text-slate-500">out · {formatSecondsToMinSec(athleteProfile.thresholdPaceRunTreadmillSec)}/km mill</span>
-          </div>
-
-          <span className="text-slate-700 hidden sm:inline">|</span>
-
-          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
-            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300">Bike</span>
-            <span className="text-slate-300 font-bold">{athleteProfile.bikeFtp}W FTP</span>
-          </div>
-
-          <span className="text-slate-700 hidden sm:inline">|</span>
-
-          <div className="flex items-center gap-1.5 shrink-0 text-xs font-mono">
-            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300">Swim</span>
-            <span className="text-slate-300 font-bold">
-              {calculateCss(athleteProfile.swim100mTimeSec, athleteProfile.swim400mTimeSec).cssPaceFormatted} CSS
-            </span>
-          </div>
-        </div>
-
-        {onOpenAthleteProfile && (
-          <button
-            type="button"
-            onClick={onOpenAthleteProfile}
-            className="px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-xs font-bold border border-slate-700/80 flex items-center gap-1 transition-colors cursor-pointer shrink-0 ml-auto"
-          >
-            <Sliders className="w-3 h-3" />
-            <span>Edit Profile & Zones</span>
-          </button>
-        )}
       </div>
 
       {/* Error state */}

@@ -22,6 +22,7 @@ import { WorkoutSummaryModal } from './components/WorkoutSummaryModal';
 import { StravaSettingsModal } from './components/StravaSettingsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AthleteProfileModal } from './components/AthleteProfileModal';
+import type { ProfileTab } from './components/AthleteProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { StravaIcon } from './components/StravaIcon';
 import { StravaActivitiesTab } from './components/StravaActivitiesTab';
@@ -165,6 +166,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAthleteProfileOpen, setIsAthleteProfileOpen] = useState(false);
+  const [profileModalTab, setProfileModalTab] = useState<ProfileTab>('settings');
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => loadAthleteProfile());
 
   const handleSaveAthleteProfile = (updated: AthleteProfile) => {
@@ -1279,15 +1281,18 @@ export default function App() {
             {/* Direct PWA Install Button (auto-hides when already running standalone) */}
             <PWAInstallButton />
 
-            {/* Athlete Profile & Zones Button */}
+            {/* Settings & Athlete Profile Button */}
             <button
               type="button"
-              onClick={() => setIsAthleteProfileOpen(true)}
-              title="Athlete Physiology & Zones"
+              onClick={() => {
+                setProfileModalTab('settings');
+                setIsAthleteProfileOpen(true);
+              }}
+              title="Settings & Athlete Profile"
               className="h-8 px-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 shadow-sm"
             >
-              <HeartPulse className="w-4 h-4 text-rose-400" />
-              <span className="hidden sm:inline">Profile</span>
+              <Settings className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Settings</span>
             </button>
 
             {/* Strava Connect Button */}
@@ -1463,41 +1468,17 @@ export default function App() {
         /* DASHBOARD: FAVORITED WORKOUTS SELECTOR & HISTORY */
         /* ========================================================= */
         <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
-          {/* Hero Banner with Quick Start (Long Press 600ms on text to edit) */}
-          <div
-            onMouseDown={handleStartHeroLongPress}
-            onMouseUp={handleCancelHeroLongPress}
-            onMouseLeave={handleCancelHeroLongPress}
-            onTouchStart={handleStartHeroLongPress}
-            onTouchEnd={handleCancelHeroLongPress}
-            onTouchCancel={handleCancelHeroLongPress}
-            onContextMenu={(e) => {
-              if (isHeroLongPressTriggeredRef.current) e.preventDefault();
-            }}
-            title="Press and hold (600ms) to customize headline text"
-            className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden group select-none"
-          >
+          {/* Hero Banner with Quick Start */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden group select-none">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <span
-                  onMouseDown={handleStartHeroLongPress}
-                  onTouchStart={handleStartHeroLongPress}
-                  className="text-xs uppercase font-extrabold tracking-wider text-amber-400 block cursor-pointer"
-                >
+                <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400 block font-mono">
                   {heroEyebrow}
                 </span>
-                <h2
-                  onMouseDown={handleStartHeroLongPress}
-                  onTouchStart={handleStartHeroLongPress}
-                  className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1 cursor-pointer"
-                >
+                <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
                   {heroHeading}
                 </h2>
-                <p
-                  onMouseDown={handleStartHeroLongPress}
-                  onTouchStart={handleStartHeroLongPress}
-                  className="text-xs sm:text-sm text-slate-400 mt-1 max-w-md cursor-pointer"
-                >
+                <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-md">
                   {heroDescription}
                 </p>
               </div>
@@ -1922,16 +1903,58 @@ export default function App() {
           localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
           localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
         }}
-        onOpenAthleteProfile={() => setIsAthleteProfileOpen(true)}
+        heroEyebrow={heroEyebrow}
+        heroHeading={heroHeading}
+        heroDescription={heroDescription}
+        onSaveHeroText={(eyebrow, heading, desc) => {
+          setHeroEyebrow(eyebrow);
+          setHeroHeading(heading);
+          setHeroDescription(desc);
+          localStorage.setItem(STORAGE_KEYS.HERO_EYEBROW, eyebrow);
+          localStorage.setItem(STORAGE_KEYS.HERO_HEADING, heading);
+          localStorage.setItem(STORAGE_KEYS.HERO_DESCRIPTION, desc);
+        }}
+        onResetHeroText={handleResetHeroText}
       />
 
-      {/* Athlete Physiology & Analysis Thresholds Modal */}
+      {/* Athlete Physiology, Zones & Unified Settings Modal */}
       <AthleteProfileModal
         isOpen={isAthleteProfileOpen}
         onClose={() => setIsAthleteProfileOpen(false)}
         profile={athleteProfile}
         onSaveProfile={handleSaveAthleteProfile}
         onResetDefaults={handleResetAthleteProfile}
+        initialTab={profileModalTab}
+        theme={theme}
+        onThemeChanged={handleThemeChanged}
+        displayDensity={displayDensity}
+        onDensityChanged={handleDensityChanged}
+        brandTitle={brandTitle}
+        brandSubtitle={brandSubtitle}
+        onSaveBrand={(title, subtitle) => {
+          setBrandTitle(title);
+          setBrandSubtitle(subtitle);
+          localStorage.setItem(STORAGE_KEYS.BRAND_TITLE, title);
+          localStorage.setItem(STORAGE_KEYS.BRAND_SUBTITLE, subtitle);
+        }}
+        onResetBrand={() => {
+          setBrandTitle('GymFIT');
+          setBrandSubtitle('Workout Log & Strava Uploader');
+          localStorage.removeItem(STORAGE_KEYS.BRAND_TITLE);
+          localStorage.removeItem(STORAGE_KEYS.BRAND_SUBTITLE);
+        }}
+        heroEyebrow={heroEyebrow}
+        heroHeading={heroHeading}
+        heroDescription={heroDescription}
+        onSaveHeroText={(eyebrow, heading, desc) => {
+          setHeroEyebrow(eyebrow);
+          setHeroHeading(heading);
+          setHeroDescription(desc);
+          localStorage.setItem(STORAGE_KEYS.HERO_EYEBROW, eyebrow);
+          localStorage.setItem(STORAGE_KEYS.HERO_HEADING, heading);
+          localStorage.setItem(STORAGE_KEYS.HERO_DESCRIPTION, desc);
+        }}
+        onResetHeroText={handleResetHeroText}
       />
 
       {/* 1. Multi-Figure Digit Drum Weight Scroll Wheel */}

@@ -371,6 +371,16 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             </a>
           </div>
 
+          {/* Description / Notes if available - at the top of Activity Details */}
+          {description && (
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="text-[11px] font-semibold text-slate-400 block">Description / Notes</span>
+              <p className="text-xs text-slate-200 whitespace-pre-wrap bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 leading-relaxed">
+                {description}
+              </p>
+            </div>
+          )}
+
           {/* Core Metrics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col">
@@ -816,16 +826,6 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
             ) : (
               <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
                 No streams recorded for this workout.
-              </div>
-            )}
-
-            {/* Description / Notes if available */}
-            {description && (
-              <div className="pt-2 border-t border-slate-800/60">
-                <span className="text-[11px] text-slate-400 block mb-1">Description / Notes:</span>
-                <p className="text-xs text-slate-300 whitespace-pre-wrap bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  {description}
-                </p>
               </div>
             )}
           </div>
