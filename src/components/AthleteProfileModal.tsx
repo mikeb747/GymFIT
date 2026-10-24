@@ -133,6 +133,15 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  const tabButtonRefs = useRef<Record<ProfileTab, HTMLButtonElement | null>>({
+    settings: null,
+    physiology: null,
+    running: null,
+    cycling: null,
+    swimming: null,
+    zones: null,
+  });
+
   const checkTabScroll = useCallback(() => {
     const el = tabsContainerRef.current;
     if (!el) return;
@@ -140,11 +149,46 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
   }, []);
 
+  const scrollActiveTabIntoView = useCallback((tab: ProfileTab) => {
+    const btn = tabButtonRefs.current[tab];
+    const container = tabsContainerRef.current;
+    if (btn && container) {
+      const containerRect = container.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+
+      // If button right edge extends past container right edge, slide container right
+      if (btnRect.right > containerRect.right - 8) {
+        const diff = btnRect.right - containerRect.right + 28;
+        container.scrollBy({ left: diff, behavior: 'smooth' });
+      } else if (btnRect.left < containerRect.left + 8) {
+        const diff = btnRect.left - containerRect.left - 28;
+        container.scrollBy({ left: diff, behavior: 'smooth' });
+      }
+    }
+    setTimeout(checkTabScroll, 300);
+  }, [checkTabScroll]);
+
+  const handleSelectTab = (tab: ProfileTab) => {
+    setActiveTab(tab);
+    setTimeout(() => {
+      scrollActiveTabIntoView(tab);
+    }, 40);
+  };
+
   useEffect(() => {
     checkTabScroll();
     window.addEventListener('resize', checkTabScroll);
     return () => window.removeEventListener('resize', checkTabScroll);
   }, [checkTabScroll, isOpen, activeTab]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        scrollActiveTabIntoView(activeTab);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, isOpen, scrollActiveTabIntoView]);
 
   const scrollTabs = (direction: 'left' | 'right') => {
     const el = tabsContainerRef.current;
@@ -354,11 +398,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
-                <span>Athlete Physiology & Zones</span>
+                <span>Settings</span>
               </h2>
-              <p className="text-[11px] sm:text-xs text-slate-400">
-                Paces, thresholds & biometrics used for TSS, recovery, and stream charts
-              </p>
             </div>
           </div>
           <button
@@ -395,10 +436,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             onScroll={checkTabScroll}
             className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-none scroll-smooth py-0.5"
           >
-            {/* Tab 0: Settings (To the left of General & HR) */}
+            {/* Tab 0: Appearance (renamed from Settings) */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.settings = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('settings')}
+              onClick={() => handleSelectTab('settings')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'settings'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -406,13 +450,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <SettingsIcon className="w-3.5 h-3.5 text-amber-400" />
-              <span>Settings</span>
+              <span>Appearance</span>
             </button>
 
-            {/* Tab 1: General & HR */}
+            {/* Tab 1: Athlete (renamed from General & HR) */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.physiology = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('physiology')}
+              onClick={() => handleSelectTab('physiology')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'physiology'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -420,13 +467,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <Heart className="w-3.5 h-3.5 text-rose-400" />
-              <span>General & HR</span>
+              <span>Athlete</span>
             </button>
 
             {/* Tab 2: Running */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.running = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('running')}
+              onClick={() => handleSelectTab('running')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'running'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -437,10 +487,13 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               <span>Running</span>
             </button>
 
-            {/* Tab 3: Cycling */}
+            {/* Tab 3: Cycling (renamed from Cycling (FTP)) */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.cycling = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('cycling')}
+              onClick={() => handleSelectTab('cycling')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'cycling'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -448,13 +501,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <Bike className="w-3.5 h-3.5 text-orange-400" />
-              <span>Cycling (FTP)</span>
+              <span>Cycling</span>
             </button>
 
-            {/* Tab 4: Swimming */}
+            {/* Tab 4: Swimming (renamed from Swimming & CSS) */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.swimming = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('swimming')}
+              onClick={() => handleSelectTab('swimming')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'swimming'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -462,13 +518,16 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <Waves className="w-3.5 h-3.5 text-sky-400" />
-              <span>Swimming & CSS</span>
+              <span>Swimming</span>
             </button>
 
-            {/* Tab 5: Zones Preview */}
+            {/* Tab 5: Zones (renamed from Zones Preview) */}
             <button
+              ref={(el) => {
+                tabButtonRefs.current.zones = el;
+              }}
               type="button"
-              onClick={() => setActiveTab('zones')}
+              onClick={() => handleSelectTab('zones')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === 'zones'
                   ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
@@ -476,7 +535,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
               }`}
             >
               <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Zones Preview</span>
+              <span>Zones</span>
             </button>
           </div>
 
