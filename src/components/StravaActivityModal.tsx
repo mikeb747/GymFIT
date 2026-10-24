@@ -45,7 +45,7 @@ import {
   saveActivityEffortFeedback,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
-import { calculateRecoveryEstimate, calculateWorkKj } from '../types/athlete';
+import { calculateRecoveryEstimate, calculateWorkKj, formatDuration } from '../types/athlete';
 import { StravaStreamPlot } from './StravaStreamPlot';
 import { ActivityCalibrationModal } from './ActivityCalibrationModal';
 import { appendActivityToTrainingLog } from '../utils/googleSheets';
@@ -60,16 +60,6 @@ interface StravaActivityModalProps {
   onClose: () => void;
   onActivityPublished?: (activityId: string) => void;
   onOpenAthleteProfile?: () => void;
-}
-
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return '0m';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${secs > 0 ? `${secs}s` : ''}`.trim();
-  if (minutes > 0) return `${minutes}m ${secs > 0 ? `${secs}s` : ''}`.trim();
-  return `${secs}s`;
 }
 
 function formatActivityDate(dateString: string): string {
@@ -753,21 +743,32 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pt-1">
-                {swimPace.laps.map((lap) => (
-                  <div
-                    key={lap.lapIndex}
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col text-xs"
-                  >
-                    <div className="flex items-center justify-between text-slate-400 text-[10px]">
-                      <span>Lap {lap.lapIndex}</span>
-                      <span>{lap.distanceM}m</span>
+                {swimPace.laps.map((lap) => {
+                  const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
+                  return (
+                    <div
+                      key={lap.lapIndex}
+                      className={`p-2 rounded-xl border flex flex-col text-xs transition-colors ${
+                        isRestLap || lap.isIgnored
+                          ? 'bg-slate-950/40 border-slate-800/40 opacity-55'
+                          : 'bg-slate-900 border-slate-800/80'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-slate-400 text-[10px]">
+                        <span className={isRestLap ? 'text-slate-500 font-semibold' : ''}>
+                          {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
+                        </span>
+                        {!isRestLap && <span>{lap.distanceM}m</span>}
+                      </div>
+                      <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
+                        <span>{formatDuration(lap.movingTimeSec)}</span>
+                        {!isRestLap && (
+                          <span className="text-sky-300">{lap.pacePer100mFormatted}</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between font-mono font-bold text-white mt-1">
-                      <span>{formatDuration(lap.movingTimeSec)}</span>
-                      <span className="text-sky-300">{lap.pacePer100mFormatted}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

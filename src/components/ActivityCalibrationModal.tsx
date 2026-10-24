@@ -105,17 +105,22 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
   // Swim Laps
   const rawLaps = (detailsRecord?.activity?.laps as any[]) || [];
   const initialLaps: CalibratedSwimLap[] = existingCalib?.calibratedLaps && existingCalib.calibratedLaps.length > 0
-    ? existingCalib.calibratedLaps
+    ? existingCalib.calibratedLaps.map((lap) => ({
+        ...lap,
+        isRest: Boolean(lap.isRest || lap.distanceM <= 0),
+      }))
     : rawLaps.map((lap, idx) => {
         const dist = Math.round(lap.distance || 0);
-        const time = Math.round(lap.moving_time || 0);
-        const paceSec = dist > 0 ? (time / dist) * 100 : 0;
+        const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
+        const isRest = dist <= 0;
+        const paceSec = dist > 0 && time > 0 ? (time / dist) * 100 : 0;
         return {
           lapIndex: idx + 1,
           distanceM: dist,
           movingTimeSec: time,
-          pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
+          pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
           isIgnored: false,
+          isRest,
         };
       });
 
@@ -131,6 +136,17 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
     ? (parseFloat(distanceInput) || 0) * 1000
     : parseFloat(distanceInput) || 0;
   const parsedMovingSec = parseMinSecToSeconds(movingTimeInput, originalMovingSec);
+
+  // Automatically recalculate moving time and total distance when swim laps are modified or ignored
+  const recalculateSwimTotals = (updatedLaps: CalibratedSwimLap[]) => {
+    if (classification.category !== 'Swim') return;
+    const activeLaps = updatedLaps.filter((l) => !l.isIgnored && !l.isRest && l.distanceM > 0);
+    const sumDist = activeLaps.reduce((acc, l) => acc + l.distanceM, 0);
+    const sumTime = activeLaps.reduce((acc, l) => acc + l.movingTimeSec, 0);
+
+    setDistanceInput(sumDist > 0 ? sumDist.toString() : '0');
+    setMovingTimeInput(formatSecondsToMinSec(sumTime));
+  };
 
   // Calculated Pace/Speed
   let calculatedPaceSpeedLabel = '';
@@ -160,43 +176,46 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
 
   // Swim Lap Handlers
   const handleLapDistanceChange = (index: number, newDistM: number) => {
-    setSwimLaps((prev) =>
-      prev.map((lap, i) => {
-        if (i !== index) return lap;
-        const dist = Math.max(1, newDistM);
-        const paceSec = dist > 0 ? (lap.movingTimeSec / dist) * 100 : 0;
-        return {
-          ...lap,
-          distanceM: dist,
-          pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
-        };
-      })
-    );
+    const dist = Math.max(0, newDistM);
+    const isRest = dist <= 0;
+    const updated = swimLaps.map((lap, i) => {
+      if (i !== index) return lap;
+      const paceSec = dist > 0 && lap.movingTimeSec > 0 ? (lap.movingTimeSec / dist) * 100 : 0;
+      return {
+        ...lap,
+        distanceM: dist,
+        isRest,
+        pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+      };
+    });
+    setSwimLaps(updated);
+    recalculateSwimTotals(updated);
   };
 
   const handleLapTimeChange = (index: number, newTimeStr: string) => {
     const timeSec = parseMinSecToSeconds(newTimeStr, 60);
-    setSwimLaps((prev) =>
-      prev.map((lap, i) => {
-        if (i !== index) return lap;
-        const dist = lap.distanceM || 1;
-        const paceSec = (timeSec / dist) * 100;
-        return {
-          ...lap,
-          movingTimeSec: timeSec,
-          pacePer100mFormatted: formatSecondsToMinSec(paceSec) + '/100m',
-        };
-      })
-    );
+    const updated = swimLaps.map((lap, i) => {
+      if (i !== index) return lap;
+      const dist = lap.distanceM || 0;
+      const isRest = Boolean(lap.isRest || dist <= 0);
+      const paceSec = !isRest && dist > 0 ? (timeSec / dist) * 100 : 0;
+      return {
+        ...lap,
+        movingTimeSec: timeSec,
+        pacePer100mFormatted: isRest ? '' : formatSecondsToMinSec(paceSec) + '/100m',
+      };
+    });
+    setSwimLaps(updated);
+    recalculateSwimTotals(updated);
   };
 
   const toggleIgnoreLap = (index: number) => {
-    setSwimLaps((prev) =>
-      prev.map((lap, i) => {
-        if (i !== index) return lap;
-        return { ...lap, isIgnored: !lap.isIgnored };
-      })
-    );
+    const updated = swimLaps.map((lap, i) => {
+      if (i !== index) return lap;
+      return { ...lap, isIgnored: !lap.isIgnored };
+    });
+    setSwimLaps(updated);
+    recalculateSwimTotals(updated);
   };
 
   const handleSave = async () => {
@@ -501,58 +520,63 @@ export const ActivityCalibrationModal: React.FC<ActivityCalibrationModalProps> =
               </p>
 
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {swimLaps.map((lap, index) => (
-                  <div
-                    key={lap.lapIndex}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
-                      lap.isIgnored
-                        ? 'bg-slate-950/40 border-slate-800/40 opacity-50'
-                        : 'bg-slate-900/80 border-slate-800'
-                    }`}
-                  >
-                    <span className="font-mono font-bold text-slate-400 w-12 shrink-0">
-                      Lap {lap.lapIndex}
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={lap.distanceM}
-                        disabled={lap.isIgnored}
-                        onChange={(e) => handleLapDistanceChange(index, parseInt(e.target.value, 10) || 0)}
-                        className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
-                      />
-                      <span className="text-slate-500 text-[10px]">m</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={formatSecondsToMinSec(lap.movingTimeSec)}
-                        disabled={lap.isIgnored}
-                        onChange={(e) => handleLapTimeChange(index, e.target.value)}
-                        className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
-                      />
-                      <span className="text-slate-500 text-[10px]">time</span>
-                    </div>
-
-                    <span className="text-sky-300 font-mono font-bold text-[11px] min-w-16 text-right">
-                      {lap.isIgnored ? 'Ignored' : lap.pacePer100mFormatted}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => toggleIgnoreLap(index)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
-                        lap.isIgnored
-                          ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                          : 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30'
+                {swimLaps.map((lap, index) => {
+                  const isRestLap = Boolean(lap.isRest || lap.distanceM <= 0);
+                  return (
+                    <div
+                      key={lap.lapIndex}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
+                        lap.isIgnored || isRestLap
+                          ? 'bg-slate-950/40 border-slate-800/40 opacity-55'
+                          : 'bg-slate-900/80 border-slate-800'
                       }`}
                     >
-                      {lap.isIgnored ? 'Restore' : 'Ignore'}
-                    </button>
-                  </div>
-                ))}
+                      <span className={`font-mono font-bold w-14 shrink-0 ${isRestLap ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isRestLap ? `Rest ${lap.lapIndex}` : `Lap ${lap.lapIndex}`}
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="25"
+                          value={lap.distanceM}
+                          disabled={lap.isIgnored}
+                          onChange={(e) => handleLapDistanceChange(index, parseInt(e.target.value, 10) || 0)}
+                          className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
+                        />
+                        <span className="text-slate-500 text-[10px]">m</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={formatSecondsToMinSec(lap.movingTimeSec)}
+                          disabled={lap.isIgnored}
+                          onChange={(e) => handleLapTimeChange(index, e.target.value)}
+                          className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-center disabled:opacity-40"
+                        />
+                        <span className="text-slate-500 text-[10px]">time</span>
+                      </div>
+
+                      <span className={`font-mono font-bold text-[11px] min-w-16 text-right ${isRestLap ? 'text-slate-500' : 'text-sky-300'}`}>
+                        {lap.isIgnored ? 'Ignored' : isRestLap ? 'Rest' : lap.pacePer100mFormatted}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleIgnoreLap(index)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
+                          lap.isIgnored
+                            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                            : 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30'
+                        }`}
+                      >
+                        {lap.isIgnored ? 'Restore' : 'Ignore'}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
