@@ -56,3 +56,4 @@ open until fixed and verified.
 14. **Direct Studio Text Customization:** Move "Customize Studio Text" directly into Settings right below "App Title & Branding", eliminating the 600ms long press.
 15. **Ignore Lap Support for All Sports:** Extend the lap-ignoring and dynamic recalculation feature from swimming to running, cycling, and other activity types.
 16. **Cycling Minimum Cadence & Torque Detection:** Remove the minimum cadence filter for cycling; instead, introduce torque/pedaling force detection.
+17. **Goals** Bike details, Course elevation gain 100m, Bike TT / Triathlon, Characteristics Fast, aerodynamic, Course elevation gain 1,500m, Bike Road bike, Characteristics, "Hilly, variable gradients", 
