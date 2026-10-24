@@ -11,7 +11,12 @@ import {
 import type { StravaActivity } from '../utils/stravaActivities';
 import { classifyActivity } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
-import { getAthleteHeartRateZones, formatSecondsToMinSec } from '../types/athlete';
+import {
+  getAthleteHeartRateZones,
+  getAthletePaceZones,
+  getAthletePowerZones,
+  formatSecondsToMinSec,
+} from '../types/athlete';
 
 interface StravaStreamPlotProps {
   streams?: Record<string, { data?: any[] }>;
@@ -40,6 +45,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   const [selectedMetric, setSelectedMetric] = useState<StreamMetricKey>('heartrate');
   const [axisMode, setAxisMode] = useState<'distance' | 'time'>('distance');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const classification = classifyActivity(activity);
@@ -235,6 +241,81 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     }));
   }, [streams, athleteProfile, classification.category, activity.moving_time]);
 
+  // Pace Zones Breakdown for Running activities (Run or Treadmill Run)
+  const paceZonesBreakdown = useMemo(() => {
+    if (classification.category !== 'Run') return null;
+    const vData: number[] = streams?.velocity_smooth?.data || [];
+    if (vData.length < 10) return null;
+
+    const zones = getAthletePaceZones(
+      athleteProfile,
+      classification.subType === 'Treadmill Run'
+    );
+
+    const counts = [0, 0, 0, 0, 0];
+    let validCount = 0;
+
+    for (const v of vData) {
+      if (typeof v !== 'number' || v < 0.5) continue; // ignore stopped/walking < 1.8 kph
+      validCount++;
+      const secPerKm = 1000 / v;
+      // In running pace, slower pace has higher secPerKm:
+      // Z1: >= zones[0].minPaceSec
+      // Z2: >= zones[1].minPaceSec
+      // Z3: >= zones[2].minPaceSec
+      // Z4: >= zones[3].minPaceSec
+      // Z5: < zones[3].minPaceSec
+      if (secPerKm >= zones[0].minPaceSec) counts[0]++;
+      else if (secPerKm >= zones[1].minPaceSec) counts[1]++;
+      else if (secPerKm >= zones[2].minPaceSec) counts[2]++;
+      else if (secPerKm >= zones[3].minPaceSec) counts[3]++;
+      else counts[4]++;
+    }
+
+    if (validCount === 0) return null;
+
+    return zones.map((z, idx) => ({
+      ...z,
+      pct: Math.round((counts[idx] / validCount) * 100),
+      durationSec: Math.round((counts[idx] / validCount) * (activity.moving_time || 0)),
+    }));
+  }, [streams, athleteProfile, classification.category, classification.subType, activity.moving_time]);
+
+  // Power Zones Breakdown for Cycling activities (Turbo Trainer or Bike)
+  const powerZonesBreakdown = useMemo(() => {
+    if (!isBikeOrTurbo) return null;
+    const wData: number[] = streams?.watts?.data || [];
+    if (wData.length < 10) return null;
+
+    const zones = getAthletePowerZones(athleteProfile);
+    const counts = new Array(zones.length).fill(0);
+    let validCount = 0;
+
+    for (const w of wData) {
+      if (typeof w !== 'number' || w < 0) continue;
+      validCount++;
+      let placed = false;
+      for (let i = 0; i < zones.length; i++) {
+        if (w <= zones[i].maxWatts) {
+          counts[i]++;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        counts[zones.length - 1]++;
+      }
+    }
+
+    if (validCount === 0) return null;
+
+    return zones.map((z, idx) => ({
+      ...z,
+      pct: Math.round((counts[idx] / validCount) * 100),
+      durationSec: Math.round((counts[idx] / validCount) * (activity.moving_time || 0)),
+    }));
+  }, [streams, athleteProfile, isBikeOrTurbo, activity.moving_time]);
+
   if (!streams || availableMetrics.length === 0) {
     return (
       <div className="py-6 px-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-center">
@@ -309,16 +390,29 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
     setHoverIndex(Math.max(0, Math.min(svgPoints.length - 1, targetIdx)));
   };
 
-  const hoveredPoint = hoverIndex !== null ? svgPoints[hoverIndex] : null;
+  const handlePlotClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const svgX = (mouseX / rect.width) * width;
+    if (svgX < padding.left || svgX > width - padding.right) return;
+    const relX = (svgX - padding.left) / plotWidth;
+    const targetIdx = Math.round(relX * (svgPoints.length - 1));
+    const clampedIdx = Math.max(0, Math.min(svgPoints.length - 1, targetIdx));
+    setSelectedPointIndex((prev) => (prev === clampedIdx ? null : clampedIdx));
+  };
 
-  // Find HR Zone of hovered point if viewing Heart Rate
+  const hoveredPoint = hoverIndex !== null ? svgPoints[hoverIndex] : null;
+  const selectedPoint = selectedPointIndex !== null && svgPoints[selectedPointIndex] ? svgPoints[selectedPointIndex] : null;
+
+  // Find HR Zone of active point if viewing Heart Rate
   let hoveredHrZone = '';
-  if (hoveredPoint && activeConfig.key === 'heartrate') {
+  const pointForZone = hoveredPoint || selectedPoint;
+  if (pointForZone && activeConfig.key === 'heartrate') {
     const zones = getAthleteHeartRateZones(
       athleteProfile,
       classification.category === 'Bike' ? 'bike' : 'run'
     );
-    const z = zones.find((item) => hoveredPoint.value <= item.maxHr) || zones[zones.length - 1];
+    const z = zones.find((item) => pointForZone.value <= item.maxHr) || zones[zones.length - 1];
     hoveredHrZone = `Z${z.zone} ${z.name}`;
   }
 
@@ -336,6 +430,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                 onClick={() => {
                   setSelectedMetric(metric.key);
                   setHoverIndex(null);
+                  setSelectedPointIndex(null);
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   isActive
@@ -351,29 +446,42 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         </div>
 
         {/* Axis Toggle: Distance vs Time */}
-        <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
-          <button
-            type="button"
-            onClick={() => setAxisMode('distance')}
-            className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-              axisMode === 'distance'
-                ? 'bg-amber-500 text-slate-950 font-black'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Distance
-          </button>
-          <button
-            type="button"
-            onClick={() => setAxisMode('time')}
-            className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-              axisMode === 'time'
-                ? 'bg-amber-500 text-slate-950 font-black'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Time
-          </button>
+        <div className="flex items-center gap-2">
+          {selectedPoint && (
+            <button
+              type="button"
+              onClick={() => setSelectedPointIndex(null)}
+              className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 transition-colors cursor-pointer"
+              title="Clear selected line"
+            >
+              Clear Pin ✕
+            </button>
+          )}
+
+          <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setAxisMode('distance')}
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                axisMode === 'distance'
+                  ? 'bg-amber-500 text-slate-950 font-black'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Distance
+            </button>
+            <button
+              type="button"
+              onClick={() => setAxisMode('time')}
+              className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                axisMode === 'time'
+                  ? 'bg-amber-500 text-slate-950 font-black'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Time
+            </button>
+          </div>
         </div>
       </div>
 
@@ -382,6 +490,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-auto overflow-visible select-none cursor-crosshair touch-none"
+          onClick={handlePlotClick}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoverIndex(null)}
           onTouchMove={handleTouchMove}
@@ -503,8 +612,56 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             strokeLinejoin="round"
           />
 
-          {/* Hover Crosshair & Indicator Point */}
-          {hoveredPoint && (
+          {/* User Click Selection: Solid Vertical Black Line */}
+          {selectedPoint && (
+            <g>
+              {/* Outer crisp white halo for high-contrast visibility against colored/dark backgrounds */}
+              <line
+                x1={selectedPoint.x}
+                y1={padding.top}
+                x2={selectedPoint.x}
+                y2={padding.top + plotHeight}
+                stroke="#ffffff"
+                strokeWidth="4"
+                opacity="0.95"
+              />
+              {/* Solid Vertical Black Line requested by user */}
+              <line
+                x1={selectedPoint.x}
+                y1={padding.top}
+                x2={selectedPoint.x}
+                y2={padding.top + plotHeight}
+                stroke="#000000"
+                strokeWidth="2.5"
+              />
+              {/* Top pointer notch */}
+              <polygon
+                points={`${selectedPoint.x - 5},${padding.top} ${selectedPoint.x + 5},${padding.top} ${selectedPoint.x},${padding.top + 7}`}
+                fill="#000000"
+                stroke="#ffffff"
+                strokeWidth="1"
+              />
+              {/* Bottom pointer notch */}
+              <polygon
+                points={`${selectedPoint.x - 5},${padding.top + plotHeight} ${selectedPoint.x + 5},${padding.top + plotHeight} ${selectedPoint.x},${padding.top + plotHeight - 7}`}
+                fill="#000000"
+                stroke="#ffffff"
+                strokeWidth="1"
+              />
+              {/* Point on curve */}
+              <circle
+                cx={selectedPoint.x}
+                cy={selectedPoint.y}
+                r="5"
+                fill="#000000"
+                stroke="#ffffff"
+                strokeWidth="2.5"
+              />
+            </g>
+          )}
+
+          {/* Hover Crosshair & Indicator Point (if not already selecting) */}
+          {hoveredPoint && (!selectedPoint || hoveredPoint.index !== selectedPoint.index) && (
             <g>
               <line
                 x1={hoveredPoint.x}
@@ -528,25 +685,34 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           )}
         </svg>
 
-        {/* Hover Floating Details Card */}
-        {hoveredPoint && (
+        {/* Selected or Hover Floating Details Card */}
+        {pointForZone && (
           <div
-            className="absolute top-2 pointer-events-none transform -translate-x-1/2 bg-slate-900/95 border border-slate-700/80 rounded-xl px-3 py-1.5 shadow-xl backdrop-blur-md z-10 flex items-center gap-3"
+            className={`absolute top-2 pointer-events-none transform -translate-x-1/2 border rounded-xl px-3 py-1.5 shadow-xl backdrop-blur-md z-10 flex items-center gap-3 ${
+              selectedPoint && (!hoveredPoint || hoveredPoint.index === selectedPoint.index)
+                ? 'bg-black/95 border-amber-400 text-white ring-2 ring-black/40'
+                : 'bg-slate-900/95 border-slate-700/80'
+            }`}
             style={{
-              left: `${Math.max(12, Math.min(88, (hoveredPoint.x / width) * 100))}%`,
+              left: `${Math.max(12, Math.min(88, (pointForZone.x / width) * 100))}%`,
             }}
           >
             <div className="flex flex-col">
-              <span className="text-[10px] text-slate-400 font-mono">
-                {axisMode === 'distance'
-                  ? `${(hoveredPoint.distMeters / 1000).toFixed(2)} km`
-                  : formatSecondsToMinSec(hoveredPoint.timeSec)}
-                {' · '}
-                {formatSecondsToMinSec(hoveredPoint.timeSec)}
+              <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                {selectedPoint && (!hoveredPoint || hoveredPoint.index === selectedPoint.index) && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                )}
+                <span>
+                  {axisMode === 'distance'
+                    ? `${(pointForZone.distMeters / 1000).toFixed(2)} km`
+                    : formatSecondsToMinSec(pointForZone.timeSec)}
+                  {' · '}
+                  {formatSecondsToMinSec(pointForZone.timeSec)}
+                </span>
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-black font-mono text-white">
-                  {activeConfig.formatValue(hoveredPoint.value, classification.category)}
+                  {activeConfig.formatValue(pointForZone.value, classification.category)}
                 </span>
                 {hoveredHrZone && (
                   <span className="text-[10px] font-bold text-amber-300 font-sans">
@@ -581,48 +747,143 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         </div>
       </div>
 
-      {/* Heart Rate Zones Distribution Bar */}
-      {hrZonesBreakdown && (
-        <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400 font-semibold flex items-center gap-1">
-              <Heart className="w-3 h-3 text-rose-400" />
-              <span>Heart Rate Zone Distribution</span>
-            </span>
-            <span className="text-slate-500 font-mono text-[10px]">
-              LTHR {classification.category === 'Bike' ? athleteProfile.thresholdHeartRateBike : athleteProfile.thresholdHeartRateRun} bpm
-            </span>
-          </div>
+      {/* Zone Distributions Container */}
+      <div className="pt-2 border-t border-slate-800/60 space-y-3">
+        {/* 1. Heart Rate Zones Distribution Bar */}
+        {hrZonesBreakdown && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                <Heart className="w-3.5 h-3.5 text-rose-400" />
+                <span>Heart Rate Zone Distribution</span>
+              </span>
+              <span className="text-slate-500 font-mono text-[10px]">
+                LTHR {classification.category === 'Bike' ? athleteProfile.thresholdHeartRateBike : athleteProfile.thresholdHeartRateRun} bpm
+              </span>
+            </div>
 
-          {/* Stacked Percentage Bar */}
-          <div className="h-3 w-full rounded-full overflow-hidden bg-slate-900 flex shadow-inner">
-            {hrZonesBreakdown.map((z) =>
-              z.pct > 0 ? (
-                <div
-                  key={z.zone}
-                  style={{ width: `${z.pct}%`, backgroundColor: z.color }}
-                  title={`Zone ${z.zone} (${z.name}): ${z.pct}% (${formatSecondsToMinSec(z.durationSec)})`}
-                  className="h-full transition-all relative group"
-                />
-              ) : null
-            )}
-          </div>
+            {/* Stacked Percentage Bar */}
+            <div className="h-3 w-full rounded-full overflow-hidden bg-slate-900 flex shadow-inner">
+              {hrZonesBreakdown.map((z) =>
+                z.pct > 0 ? (
+                  <div
+                    key={z.zone}
+                    style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                    title={`Zone ${z.zone} (${z.name}): ${z.pct}% (${formatSecondsToMinSec(z.durationSec)})`}
+                    className="h-full transition-all relative group"
+                  />
+                ) : null
+              )}
+            </div>
 
-          {/* Zone Legend */}
-          <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-mono">
-            {hrZonesBreakdown.map((z) => (
-              <div key={z.zone} className="flex flex-col items-center">
-                <span className="font-bold truncate" style={{ color: z.color }}>
-                  Z{z.zone} {z.pct}%
-                </span>
-                <span className="text-[9px] text-slate-500 truncate font-sans">
-                  {formatSecondsToMinSec(z.durationSec)}
-                </span>
-              </div>
-            ))}
+            {/* Zone Legend */}
+            <div className="grid grid-cols-5 gap-1 pt-0.5 text-[10px] font-mono">
+              {hrZonesBreakdown.map((z) => (
+                <div key={z.zone} className="flex flex-col items-center text-center">
+                  <span className="font-bold truncate" style={{ color: z.color }}>
+                    Z{z.zone} {z.pct}%
+                  </span>
+                  <span className="text-[9px] text-slate-400 truncate font-sans">
+                    {formatSecondsToMinSec(z.durationSec)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* 2. Pace Zone Distribution Bar (Strictly for Running Activities!) */}
+        {paceZonesBreakdown && (
+          <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                <Gauge className="w-3.5 h-3.5 text-sky-400" />
+                <span>Pace Zone Distribution</span>
+              </span>
+              <span className="text-slate-400 font-mono text-[10px]">
+                Threshold: {formatSecondsToMinSec(classification.subType === 'Treadmill Run' ? athleteProfile.thresholdPaceRunTreadmillSec : athleteProfile.thresholdPaceRunOutdoorSec)}/km
+              </span>
+            </div>
+
+            {/* Stacked Percentage Bar */}
+            <div className="h-3 w-full rounded-full overflow-hidden bg-slate-900 flex shadow-inner">
+              {paceZonesBreakdown.map((z) =>
+                z.pct > 0 ? (
+                  <div
+                    key={z.zone}
+                    style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                    title={`Zone ${z.zone} (${z.name}): ${z.pct}% (${formatSecondsToMinSec(z.durationSec)}) [${z.rangeFormatted}]`}
+                    className="h-full transition-all relative group"
+                  />
+                ) : null
+              )}
+            </div>
+
+            {/* Zone Legend */}
+            <div className="grid grid-cols-5 gap-1 pt-0.5 text-[10px] font-mono">
+              {paceZonesBreakdown.map((z) => (
+                <div key={z.zone} className="flex flex-col items-center text-center">
+                  <span className="font-bold truncate" style={{ color: z.color }}>
+                    Z{z.zone} {z.pct}%
+                  </span>
+                  <span className="text-[9px] text-slate-400 truncate font-sans">
+                    {formatSecondsToMinSec(z.durationSec)}
+                  </span>
+                  <span className="text-[8px] text-slate-500 font-mono truncate">
+                    {z.rangeFormatted}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Power Zone Distribution Bar (Strictly for Cycling Activities!) */}
+        {powerZonesBreakdown && (
+          <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>Power Zone Distribution</span>
+              </span>
+              <span className="text-slate-400 font-mono text-[10px]">
+                FTP: {athleteProfile.bikeFtp}W
+              </span>
+            </div>
+
+            {/* Stacked Percentage Bar */}
+            <div className="h-3 w-full rounded-full overflow-hidden bg-slate-900 flex shadow-inner">
+              {powerZonesBreakdown.map((z) =>
+                z.pct > 0 ? (
+                  <div
+                    key={z.zone}
+                    style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                    title={`Zone ${z.zone} (${z.name}): ${z.pct}% (${formatSecondsToMinSec(z.durationSec)}) [${z.rangeFormatted}]`}
+                    className="h-full transition-all relative group"
+                  />
+                ) : null
+              )}
+            </div>
+
+            {/* Zone Legend */}
+            <div className="grid grid-cols-6 gap-1 pt-0.5 text-[10px] font-mono">
+              {powerZonesBreakdown.map((z) => (
+                <div key={z.zone} className="flex flex-col items-center text-center">
+                  <span className="font-bold truncate" style={{ color: z.color }}>
+                    Z{z.zone} {z.pct}%
+                  </span>
+                  <span className="text-[9px] text-slate-400 truncate font-sans">
+                    {formatSecondsToMinSec(z.durationSec)}
+                  </span>
+                  <span className="text-[8px] text-slate-500 font-mono truncate">
+                    {z.rangeFormatted}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

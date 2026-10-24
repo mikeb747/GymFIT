@@ -151,6 +151,9 @@ export async function getOrCreateTrainingLogSheet(): Promise<string> {
                     { userEnteredValue: { stringValue: 'Avg Watts (W)' } },
                     { userEnteredValue: { stringValue: 'Avg Cadence (rpm)' } },
                     { userEnteredValue: { stringValue: 'TSS (Training Stress Score)' } },
+                    { userEnteredValue: { stringValue: 'Pre-Workout Feeling (1-5)' } },
+                    { userEnteredValue: { stringValue: 'RPE (1-10)' } },
+                    { userEnteredValue: { stringValue: 'sRPE Load' } },
                     { userEnteredValue: { stringValue: 'Calories (kcal)' } },
                     { userEnteredValue: { stringValue: 'GymFIT Breakdown / Notes' } },
                     { userEnteredValue: { stringValue: 'Strava URL' } },
@@ -330,6 +333,22 @@ export async function appendActivityToTrainingLog(
     breakdownNotes = `[Calibrated] ${breakdownNotes}`;
   }
 
+  const effortFeedback = details?.effortFeedback;
+  const preFeelingStr = effortFeedback?.preWorkoutFeeling
+    ? `${effortFeedback.preWorkoutFeeling}/5`
+    : '';
+  const rpeStr = effortFeedback?.rpe
+    ? `${effortFeedback.rpe}/10`
+    : '';
+  const sRpeLoadStr = effortFeedback?.sRpeLoad
+    ? String(effortFeedback.sRpeLoad)
+    : '';
+
+  if (rpeStr || preFeelingStr) {
+    const feedbackNote = [preFeelingStr ? `Pre: ${preFeelingStr}` : '', rpeStr ? `RPE: ${rpeStr} (${sRpeLoadStr} sRPE)` : ''].filter(Boolean).join(' · ');
+    breakdownNotes = breakdownNotes ? `${feedbackNote} | ${breakdownNotes}` : feedbackNote;
+  }
+
   const rowValues = [
     activity.start_date_local || activity.start_date,
     actIdStr,
@@ -346,6 +365,9 @@ export async function appendActivityToTrainingLog(
     avgWatts ? (normalizedPowerStr ? `${avgWatts}W (${normalizedPowerStr})` : avgWatts) : '',
     avgCadence,
     tssValue,
+    preFeelingStr,
+    rpeStr,
+    sRpeLoadStr,
     calories ? Math.round(Number(calories)).toString() : '',
     breakdownNotes.slice(0, 500),
     stravaUrl,
