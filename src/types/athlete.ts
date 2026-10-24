@@ -215,6 +215,179 @@ export function getAthleteHeartRateZones(profile: AthleteProfile, sport: 'run' |
 }
 
 // --------------------------------------------------------------------------
+// Running Pace Zones (Based on Running Threshold Pace)
+// --------------------------------------------------------------------------
+
+export interface PaceZone {
+  zone: number;
+  name: string;
+  minPaceSec: number; // Faster bound in seconds/km
+  maxPaceSec: number; // Slower bound in seconds/km
+  rangeFormatted: string;
+  color: string;
+  description: string;
+}
+
+export function getAthletePaceZones(profile: AthleteProfile, isTreadmill = false): PaceZone[] {
+  const thresholdSec = isTreadmill
+    ? profile.thresholdPaceRunTreadmillSec || 228
+    : profile.thresholdPaceRunOutdoorSec || 228;
+
+  // Pace zones based on percentage of threshold velocity (Daniels / Pfitzinger / Coggan):
+  // Slower pace = more seconds per km
+  // Z1: Recovery (> 129% threshold pace)
+  // Z2: Aerobic / Easy (114% - 129%)
+  // Z3: Tempo / Marathon (106% - 113%)
+  // Z4: Threshold (98% - 105%)
+  // Z5: VO2 Max & Speed (< 98%)
+
+  const z1Slow = Math.round(thresholdSec * 1.55);
+  const z1Fast = Math.round(thresholdSec * 1.29);
+  const z2Fast = Math.round(thresholdSec * 1.14);
+  const z3Fast = Math.round(thresholdSec * 1.06);
+  const z4Fast = Math.round(thresholdSec * 0.98);
+  const z5Fast = Math.round(thresholdSec * 0.85);
+
+  return [
+    {
+      zone: 1,
+      name: 'Recovery',
+      minPaceSec: z1Fast,
+      maxPaceSec: z1Slow,
+      rangeFormatted: `>${formatSecondsToMinSec(z1Fast)}/km`,
+      color: '#38bdf8', // sky-400
+      description: 'Active recovery and warm-up jog',
+    },
+    {
+      zone: 2,
+      name: 'Aerobic / Easy',
+      minPaceSec: z2Fast,
+      maxPaceSec: z1Fast,
+      rangeFormatted: `${formatSecondsToMinSec(z2Fast)} - ${formatSecondsToMinSec(z1Fast)}/km`,
+      color: '#34d399', // emerald-400
+      description: 'Base building, long runs, easy mileage',
+    },
+    {
+      zone: 3,
+      name: 'Tempo / Marathon',
+      minPaceSec: z3Fast,
+      maxPaceSec: z2Fast,
+      rangeFormatted: `${formatSecondsToMinSec(z3Fast)} - ${formatSecondsToMinSec(z2Fast)}/km`,
+      color: '#fbbf24', // amber-400
+      description: 'Aerobic power, half/full marathon race pace',
+    },
+    {
+      zone: 4,
+      name: 'Threshold',
+      minPaceSec: z4Fast,
+      maxPaceSec: z3Fast,
+      rangeFormatted: `${formatSecondsToMinSec(z4Fast)} - ${formatSecondsToMinSec(z3Fast)}/km`,
+      color: '#fb923c', // orange-400
+      description: 'Lactate threshold, 10k-15k pace',
+    },
+    {
+      zone: 5,
+      name: 'VO2 Max / Speed',
+      minPaceSec: z5Fast,
+      maxPaceSec: z4Fast,
+      rangeFormatted: `<${formatSecondsToMinSec(z4Fast)}/km`,
+      color: '#f87171', // rose-400
+      description: 'Intervals, 5k and neuromuscular speed work',
+    },
+  ];
+}
+
+// --------------------------------------------------------------------------
+// Cycling Power Zones (Based on Bike FTP)
+// --------------------------------------------------------------------------
+
+export interface PowerZone {
+  zone: number;
+  name: string;
+  minWatts: number;
+  maxWatts: number;
+  rangeFormatted: string;
+  color: string;
+  description: string;
+}
+
+export function getAthletePowerZones(profile: AthleteProfile): PowerZone[] {
+  const ftp = profile.bikeFtp || 310;
+
+  // Coggan 6-Zone cycling power distribution:
+  // Z1: Active Recovery (< 55% FTP)
+  // Z2: Endurance (56% - 75% FTP)
+  // Z3: Tempo (76% - 90% FTP)
+  // Z4: Lactate Threshold (91% - 105% FTP)
+  // Z5: VO2 Max (106% - 120% FTP)
+  // Z6: Anaerobic & Neuromuscular (> 120% FTP)
+
+  const z1Max = Math.round(ftp * 0.55);
+  const z2Max = Math.round(ftp * 0.75);
+  const z3Max = Math.round(ftp * 0.90);
+  const z4Max = Math.round(ftp * 1.05);
+  const z5Max = Math.round(ftp * 1.20);
+  const z6Max = Math.round(ftp * 1.50);
+
+  return [
+    {
+      zone: 1,
+      name: 'Active Recovery',
+      minWatts: 0,
+      maxWatts: z1Max,
+      rangeFormatted: `<${z1Max}W`,
+      color: '#38bdf8', // sky-400
+      description: 'Easy spinning, flushing lactate',
+    },
+    {
+      zone: 2,
+      name: 'Endurance',
+      minWatts: z1Max + 1,
+      maxWatts: z2Max,
+      rangeFormatted: `${z1Max + 1} - ${z2Max}W`,
+      color: '#34d399', // emerald-400
+      description: 'All-day aerobic endurance, fat burning',
+    },
+    {
+      zone: 3,
+      name: 'Tempo',
+      minWatts: z2Max + 1,
+      maxWatts: z3Max,
+      rangeFormatted: `${z2Max + 1} - ${z3Max}W`,
+      color: '#fbbf24', // amber-400
+      description: 'Rhythmic aerobic effort, sweetspot base',
+    },
+    {
+      zone: 4,
+      name: 'Threshold',
+      minWatts: z3Max + 1,
+      maxWatts: z4Max,
+      rangeFormatted: `${z3Max + 1} - ${z4Max}W`,
+      color: '#fb923c', // orange-400
+      description: 'FTP race pace, sustainable 1-hour power',
+    },
+    {
+      zone: 5,
+      name: 'VO2 Max',
+      minWatts: z4Max + 1,
+      maxWatts: z5Max,
+      rangeFormatted: `${z4Max + 1} - ${z5Max}W`,
+      color: '#f87171', // rose-400
+      description: '3-8 min high-intensity interval efforts',
+    },
+    {
+      zone: 6,
+      name: 'Anaerobic',
+      minWatts: z5Max + 1,
+      maxWatts: z6Max,
+      rangeFormatted: `>${z5Max}W`,
+      color: '#c084fc', // purple-400
+      description: 'Short bursts, sprint surges & attacks',
+    },
+  ];
+}
+
+// --------------------------------------------------------------------------
 // Recovery Calculation Model
 // --------------------------------------------------------------------------
 

@@ -45,12 +45,21 @@ export interface ActivityCalibration {
   calibrationNotes?: string;
 }
 
+export interface ActivityEffortFeedback {
+  preWorkoutFeeling?: 1 | 2 | 3 | 4 | 5; // 1: Drained, 2: Tired, 3: Normal, 4: Good, 5: Primed
+  rpe?: number; // 1 to 10 Borg CR-10 scale
+  sRpeLoad?: number; // rpe * (durationMinutes)
+  feedbackNotes?: string;
+  recordedAt?: string;
+}
+
 export interface StravaActivityDetailsRecord {
   id: string;
   activity?: Record<string, unknown>;
   streams?: Record<string, unknown>;
   streamsError?: string;
   calibration?: ActivityCalibration;
+  effortFeedback?: ActivityEffortFeedback;
   fetchedAt?: string;
   analysedAt?: string;
   googleDrivePublishedAt?: string;
@@ -790,6 +799,29 @@ export function clearActivityCalibration(
   return updateStravaActivityRecord(activityId, (record) => {
     const next = { ...record };
     delete next.calibration;
+    return next;
+  });
+}
+
+export function saveActivityEffortFeedback(
+  activityId: number | string,
+  feedback: ActivityEffortFeedback
+): Promise<StravaActivityDetailsRecord> {
+  return updateStravaActivityRecord(activityId, (record) => ({
+    ...record,
+    effortFeedback: {
+      ...feedback,
+      recordedAt: new Date().toISOString(),
+    },
+  }));
+}
+
+export function clearActivityEffortFeedback(
+  activityId: number | string
+): Promise<StravaActivityDetailsRecord> {
+  return updateStravaActivityRecord(activityId, (record) => {
+    const next = { ...record };
+    delete next.effortFeedback;
     return next;
   });
 }

@@ -23,10 +23,12 @@ import {
   Wrench,
   Gauge,
   Flame,
+  HeartHandshake,
 } from 'lucide-react';
 import type {
   StravaActivity,
   StravaActivityDetailsRecord,
+  ActivityEffortFeedback,
 } from '../utils/stravaActivities';
 import {
   classifyActivity,
@@ -40,6 +42,7 @@ import {
   calculateActivityTSS,
   calculateNormalizedPower,
   getSwimPaceDetails,
+  saveActivityEffortFeedback,
 } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import { calculateRecoveryEstimate, calculateWorkKj } from '../types/athlete';
@@ -211,6 +214,40 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
 
   // Swim Pace Details & Laps (calibrated)
   const swimPace = getSwimPaceDetails(activity, detailsRecord || undefined);
+
+  // Perceived Exertion (RPE) & Pre-Workout Feeling
+  const effortFeedback = detailsRecord?.effortFeedback;
+
+  const handleSaveFeeling = async (score: 1 | 2 | 3 | 4 | 5) => {
+    const nextFeedback: ActivityEffortFeedback = {
+      ...effortFeedback,
+      preWorkoutFeeling: effortFeedback?.preWorkoutFeeling === score ? undefined : score,
+    };
+    try {
+      const updated = await saveActivityEffortFeedback(activity.id, nextFeedback);
+      setDetailsRecord(updated);
+    } catch (err) {
+      console.error('[Save Feeling Error]', err);
+    }
+  };
+
+  const handleSaveRpe = async (rpeVal: number) => {
+    const isDeselect = effortFeedback?.rpe === rpeVal;
+    const finalRpe = isDeselect ? undefined : rpeVal;
+    const sRpeLoad = finalRpe ? Math.round(finalRpe * (durationMoving / 60)) : undefined;
+
+    const nextFeedback: ActivityEffortFeedback = {
+      ...effortFeedback,
+      rpe: finalRpe,
+      sRpeLoad,
+    };
+    try {
+      const updated = await saveActivityEffortFeedback(activity.id, nextFeedback);
+      setDetailsRecord(updated);
+    } catch (err) {
+      console.error('[Save RPE Error]', err);
+    }
+  };
 
   const handleExportToSheets = async () => {
     if (!isGoogleConnected) {
@@ -581,6 +618,127 @@ export const StravaActivityModal: React.FC<StravaActivityModalProps> = ({
               )}
             </div>
           )}
+
+          {/* Athlete Perceived Exertion (sRPE) & Pre-Workout Readiness */}
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <HeartHandshake className="w-4 h-4 text-amber-400" />
+                <div>
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                    Internal Load & Readiness
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    Pre-Workout Feeling & Post-Workout RPE
+                  </span>
+                </div>
+              </div>
+              {effortFeedback?.sRpeLoad ? (
+                <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-lg">
+                  {effortFeedback.sRpeLoad} sRPE
+                </span>
+              ) : null}
+            </div>
+
+            {/* Pre-Workout Feeling (1 to 5) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-300 font-semibold">How were you feeling before this workout?</span>
+                <span className="text-slate-500 font-mono text-[10px]">Readiness</span>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[
+                  { score: 1 as const, emoji: '🪫', label: 'Drained' },
+                  { score: 2 as const, emoji: '🥱', label: 'Low' },
+                  { score: 3 as const, emoji: '😐', label: 'Normal' },
+                  { score: 4 as const, emoji: '🙂', label: 'Good' },
+                  { score: 5 as const, emoji: '⚡', label: 'Primed' },
+                ].map((item) => {
+                  const isSelected = effortFeedback?.preWorkoutFeeling === item.score;
+                  return (
+                    <button
+                      key={item.score}
+                      type="button"
+                      onClick={() => handleSaveFeeling(item.score)}
+                      className={`p-2 rounded-xl border flex flex-col items-center text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-bold shadow-sm'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="text-sm">{item.emoji}</span>
+                      <span className="text-[10px] mt-0.5 font-bold leading-tight">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Post-Workout RPE (1 to 10 Borg CR-10 scale) */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-300 font-semibold">Perceived Exertion of the Workout (RPE)</span>
+                <span className="text-slate-500 font-mono text-[10px]">Borg CR-10</span>
+              </div>
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
+                {[
+                  { rpe: 1, label: 'Very Light' },
+                  { rpe: 2, label: 'Easy' },
+                  { rpe: 3, label: 'Moderate' },
+                  { rpe: 4, label: 'Somewhat Hard' },
+                  { rpe: 5, label: 'Hard' },
+                  { rpe: 6, label: 'Hard+' },
+                  { rpe: 7, label: 'Very Hard' },
+                  { rpe: 8, label: 'Very Hard+' },
+                  { rpe: 9, label: 'Near Max' },
+                  { rpe: 10, label: 'Maximal' },
+                ].map((item) => {
+                  const isSelected = effortFeedback?.rpe === item.rpe;
+                  return (
+                    <button
+                      key={item.rpe}
+                      type="button"
+                      onClick={() => handleSaveRpe(item.rpe)}
+                      title={`${item.rpe}/10: ${item.label}`}
+                      className={`py-1.5 px-1 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center ${
+                        isSelected
+                          ? 'bg-amber-500 border-amber-400 text-slate-950 font-black shadow-md'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 hover:border-slate-700 font-bold'
+                      }`}
+                    >
+                      <span className="text-xs font-mono font-black">{item.rpe}</span>
+                      <span className="text-[8px] truncate max-w-full opacity-80">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* sRPE load summary & discrepancy insight */}
+            {effortFeedback?.rpe && (
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs flex flex-col gap-1">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <span className="text-slate-400">
+                    Foster's Session-RPE Load:
+                  </span>
+                  <span className="font-mono font-bold text-amber-300">
+                    {effortFeedback.rpe} RPE × {Math.max(1, Math.round(durationMoving / 60))} min = {effortFeedback.sRpeLoad} load units
+                  </span>
+                </div>
+                {/* Decoupling / Overtraining detection insight */}
+                {effortFeedback.preWorkoutFeeling && effortFeedback.preWorkoutFeeling <= 2 && effortFeedback.rpe >= 7 && (
+                  <p className="text-[11px] text-amber-300/90 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 mt-1">
+                    ⚠️ <strong>Under-Recovery Flag:</strong> You felt drained/low pre-workout and reported a very high RPE ({effortFeedback.rpe}/10). Consider prioritizing hydration, sleep, and an active recovery or rest day.
+                  </p>
+                )}
+                {effortFeedback.preWorkoutFeeling && effortFeedback.preWorkoutFeeling >= 4 && effortFeedback.rpe <= 4 && (
+                  <p className="text-[11px] text-emerald-300/90 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 mt-1">
+                    ✨ <strong>High Efficiency:</strong> High readiness and low perceived exertion. Body is adapting well to current training block.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Swim Moving Laps Breakdown if Swim activity and laps are present */}
           {classification.category === 'Swim' && swimPace?.laps && swimPace.laps.length > 0 && (
