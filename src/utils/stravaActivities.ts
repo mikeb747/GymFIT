@@ -30,6 +30,7 @@ export interface CalibratedSwimLap {
   movingTimeSec: number;
   pacePer100mFormatted: string;
   isIgnored?: boolean;
+  isRest?: boolean;
 }
 
 export interface ActivityCalibration {
@@ -395,6 +396,8 @@ export interface SwimPaceDetails {
     distanceM: number;
     movingTimeSec: number;
     pacePer100mFormatted: string;
+    isIgnored?: boolean;
+    isRest?: boolean;
   }>;
 }
 
@@ -461,7 +464,9 @@ export function getSwimPaceDetails(
   // 1. If user calibrated laps exist, prioritize them!
   const calibratedLaps = details?.calibration?.calibratedLaps;
   if (calibratedLaps && calibratedLaps.length > 0) {
-    const activeLaps = calibratedLaps.filter((l) => !l.isIgnored);
+    const activeLaps = calibratedLaps.filter(
+      (l) => !l.isIgnored && !l.isRest && l.distanceM > 0
+    );
     const sumLapTime = activeLaps.reduce((acc, l) => acc + (l.movingTimeSec || 0), 0);
     const sumLapDist = activeLaps.reduce((acc, l) => acc + (l.distanceM || 0), 0);
 
@@ -480,64 +485,81 @@ export function getSwimPaceDetails(
       paceSecondsPer100m: secPer100m,
       totalDistanceM: Math.round(totalDist),
       movingTimeSec: Math.round(totalMovingTime),
-      laps: calibratedLaps.map((lap) => ({
-        lapIndex: lap.lapIndex,
-        distanceM: lap.distanceM,
-        movingTimeSec: lap.movingTimeSec,
-        pacePer100mFormatted: lap.pacePer100mFormatted,
-        isIgnored: Boolean(lap.isIgnored),
-      })),
+      laps: calibratedLaps.map((lap) => {
+        const isRest = Boolean(lap.isRest || lap.distanceM <= 0);
+        return {
+          lapIndex: lap.lapIndex,
+          distanceM: lap.distanceM,
+          movingTimeSec: lap.movingTimeSec,
+          pacePer100mFormatted: isRest ? '' : lap.pacePer100mFormatted,
+          isIgnored: Boolean(lap.isIgnored),
+          isRest,
+        };
+      }),
     };
   }
 
   // 2. Otherwise extract raw laps from Strava activity
   const rawLaps = (details?.activity?.laps as any[]) || [];
-  const validMovingLaps = rawLaps.filter(
-    (lap) =>
-      typeof lap?.distance === 'number' &&
-      lap.distance > 0 &&
-      typeof lap?.moving_time === 'number' &&
-      lap.moving_time > 0
-  );
+  if (rawLaps.length > 0) {
+    const processedLaps = rawLaps.map((lap, idx) => {
+      const dist = Math.round(lap.distance || 0);
+      const time = Math.round(lap.moving_time || lap.elapsed_time || 0);
+      const isRest = dist <= 0;
+      let paceFormatted = '';
+      if (!isRest && dist > 0 && time > 0) {
+        const lapSecPer100m = (time / dist) * 100;
+        const lMins = Math.floor(lapSecPer100m / 60);
+        const lSecs = Math.round(lapSecPer100m % 60);
+        paceFormatted = `${lMins}:${lSecs.toString().padStart(2, '0')}/100m`;
+      }
+      return {
+        lapIndex: idx + 1,
+        distanceM: dist,
+        movingTimeSec: time,
+        pacePer100mFormatted: paceFormatted,
+        isIgnored: false,
+        isRest,
+      };
+    });
 
-  let totalDist = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
-  let totalMovingTime = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
+    // Only count active swimming laps (> 0m distance) towards moving time and overall pace
+    const activeLaps = processedLaps.filter((l) => !l.isRest && l.distanceM > 0);
+    const sumLapTime = activeLaps.reduce((acc, l) => acc + l.movingTimeSec, 0);
+    const sumLapDist = activeLaps.reduce((acc, l) => acc + l.distanceM, 0);
 
-  // If detailed moving laps are available, calculate cumulative moving lap metrics
-  if (validMovingLaps.length > 0 && !details?.calibration?.calibratedDistanceM) {
-    const sumLapTime = validMovingLaps.reduce((acc, l) => acc + l.moving_time, 0);
-    const sumLapDist = validMovingLaps.reduce((acc, l) => acc + l.distance, 0);
-    if (sumLapDist > 0 && sumLapTime > 0) {
-      totalDist = sumLapDist;
-      totalMovingTime = sumLapTime;
+    const totalDist = details?.calibration?.calibratedDistanceM ?? (sumLapDist > 0 ? sumLapDist : activity.distance ?? 0);
+    const totalMovingTime = details?.calibration?.calibratedMovingTimeSec ?? (sumLapTime > 0 ? sumLapTime : activity.moving_time ?? 0);
+
+    if (totalDist > 0 && totalMovingTime > 0) {
+      const secPer100m = (totalMovingTime / totalDist) * 100;
+      const mins = Math.floor(secPer100m / 60);
+      const secs = Math.round(secPer100m % 60);
+      const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
+
+      return {
+        pacePer100mFormatted: paceFormatted,
+        paceSecondsPer100m: secPer100m,
+        totalDistanceM: Math.round(totalDist),
+        movingTimeSec: Math.round(totalMovingTime),
+        laps: processedLaps,
+      };
     }
   }
 
-  if (totalDist <= 0 || totalMovingTime <= 0) return null;
+  // Fallback to total activity metrics if no lap breakdown
+  const fallbackDist = details?.calibration?.calibratedDistanceM ?? activity.distance ?? 0;
+  const fallbackTime = details?.calibration?.calibratedMovingTimeSec ?? activity.moving_time ?? activity.elapsed_time ?? 0;
+  if (fallbackDist <= 0 || fallbackTime <= 0) return null;
 
-  const secPer100m = (totalMovingTime / totalDist) * 100;
+  const secPer100m = (fallbackTime / fallbackDist) * 100;
   const mins = Math.floor(secPer100m / 60);
   const secs = Math.round(secPer100m % 60);
-  const paceFormatted = `${mins}:${secs.toString().padStart(2, '0')}/100m`;
-
-  const lapBreakdown = validMovingLaps.map((lap, idx) => {
-    const lapSecPer100m = (lap.moving_time / lap.distance) * 100;
-    const lMins = Math.floor(lapSecPer100m / 60);
-    const lSecs = Math.round(lapSecPer100m % 60);
-    return {
-      lapIndex: idx + 1,
-      distanceM: Math.round(lap.distance),
-      movingTimeSec: Math.round(lap.moving_time),
-      pacePer100mFormatted: `${lMins}:${lSecs.toString().padStart(2, '0')}/100m`,
-    };
-  });
-
   return {
-    pacePer100mFormatted: paceFormatted,
+    pacePer100mFormatted: `${mins}:${secs.toString().padStart(2, '0')}/100m`,
     paceSecondsPer100m: secPer100m,
-    totalDistanceM: Math.round(totalDist),
-    movingTimeSec: Math.round(totalMovingTime),
-    laps: lapBreakdown.length > 0 ? lapBreakdown : undefined,
+    totalDistanceM: Math.round(fallbackDist),
+    movingTimeSec: Math.round(fallbackTime),
   };
 }
 

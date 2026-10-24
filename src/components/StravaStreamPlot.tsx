@@ -9,13 +9,14 @@ import {
   Compass,
 } from 'lucide-react';
 import type { StravaActivity } from '../utils/stravaActivities';
-import { classifyActivity } from '../utils/stravaActivities';
+import { classifyActivity, calculateNormalizedPower } from '../utils/stravaActivities';
 import type { AthleteProfile } from '../types/athlete';
 import {
   getAthleteHeartRateZones,
   getAthletePaceZones,
   getAthletePowerZones,
   formatSecondsToMinSec,
+  formatDuration,
 } from '../types/athlete';
 
 interface StravaStreamPlotProps {
@@ -362,59 +363,292 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
   const linePath = svgPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`, '');
   const areaPath = `${linePath} L ${svgPoints[svgPoints.length - 1].x.toFixed(1)},${(padding.top + plotHeight).toFixed(1)} L ${padding.left.toFixed(1)},${(padding.top + plotHeight).toFixed(1)} Z`;
 
-  // Hover position handling
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const svgX = (mouseX / rect.width) * width;
-
-    if (svgX < padding.left || svgX > width - padding.right) {
-      setHoverIndex(null);
-      return;
+  // Total Elevation Gain calculation
+  const totalElevationGain = useMemo(() => {
+    if (activity.total_elevation_gain && activity.total_elevation_gain > 0) {
+      return Math.round(activity.total_elevation_gain);
     }
+    const altData: number[] = streams?.altitude?.data || [];
+    if (altData.length < 2) return 0;
+    let gain = 0;
+    for (let i = 1; i < altData.length; i++) {
+      const diff = altData[i] - altData[i - 1];
+      if (diff > 0.3) gain += diff;
+    }
+    return Math.round(gain);
+  }, [activity.total_elevation_gain, streams?.altitude?.data]);
 
+  // Active Minimum Cadence (for cycling: when power is in Zone 2+ >= 55% FTP and pedaling > 30 rpm)
+  const activeMinCadence = useMemo(() => {
+    const cadData: number[] = streams?.cadence?.data || [];
+    if (cadData.length === 0) return 0;
+    const wattsData: number[] = streams?.watts?.data || [];
+    const z2ThresholdWatts = (athleteProfile.bikeFtp || 310) * 0.55;
+
+    if (isBikeOrTurbo && wattsData.length === cadData.length) {
+      const z2Cadences = cadData.filter((cad, i) => wattsData[i] >= z2ThresholdWatts && cad > 30);
+      if (z2Cadences.length > 0) {
+        return Math.min(...z2Cadences);
+      }
+    }
+    const activeCad = cadData.filter((c) => c > 35);
+    return activeCad.length > 0 ? Math.min(...activeCad) : Math.round(chartData?.minVal || 0);
+  }, [streams?.cadence?.data, streams?.watts?.data, athleteProfile.bikeFtp, isBikeOrTurbo, chartData?.minVal]);
+
+  // Active Minimum Speed (moving > 5 kph)
+  const activeMinSpeedKph = useMemo(() => {
+    const vData: number[] = streams?.velocity_smooth?.data || [];
+    const moving = vData.map((v) => v * 3.6).filter((kph) => kph >= 5.0);
+    return moving.length > 0 ? Math.min(...moving).toFixed(1) : '0.0';
+  }, [streams?.velocity_smooth?.data]);
+
+  // Pointer drag tracking: dragging shows black measurement line without dropping a permanent pin
+  const pointerDownRef = useRef<{ startX: number; hasMoved: boolean } | null>(null);
+
+  const getIdxFromClientX = (clientX: number, target: SVGSVGElement) => {
+    const rect = target.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+    const svgX = (mouseX / rect.width) * width;
+    if (svgX < padding.left || svgX > width - padding.right) return null;
     const relX = (svgX - padding.left) / plotWidth;
     const targetIdx = Math.round(relX * (svgPoints.length - 1));
-    const clampedIdx = Math.max(0, Math.min(svgPoints.length - 1, targetIdx));
-    setHoverIndex(clampedIdx);
+    return Math.max(0, Math.min(svgPoints.length - 1, targetIdx));
   };
 
-  const handleTouchMove = (e: React.TouchEvent<SVGSVGElement>) => {
-    if (!e.touches[0]) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.touches[0].clientX - rect.left;
-    const svgX = (mouseX / rect.width) * width;
-    if (svgX < padding.left || svgX > width - padding.right) return;
-    const relX = (svgX - padding.left) / plotWidth;
-    const targetIdx = Math.round(relX * (svgPoints.length - 1));
-    setHoverIndex(Math.max(0, Math.min(svgPoints.length - 1, targetIdx)));
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    pointerDownRef.current = { startX: e.clientX, hasMoved: false };
+    const idx = getIdxFromClientX(e.clientX, e.currentTarget);
+    if (idx !== null) {
+      setHoverIndex(idx);
+    }
   };
 
-  const handlePlotClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const svgX = (mouseX / rect.width) * width;
-    if (svgX < padding.left || svgX > width - padding.right) return;
-    const relX = (svgX - padding.left) / plotWidth;
-    const targetIdx = Math.round(relX * (svgPoints.length - 1));
-    const clampedIdx = Math.max(0, Math.min(svgPoints.length - 1, targetIdx));
-    setSelectedPointIndex((prev) => (prev === clampedIdx ? null : clampedIdx));
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (pointerDownRef.current) {
+      if (Math.abs(e.clientX - pointerDownRef.current.startX) > 4) {
+        pointerDownRef.current.hasMoved = true;
+      }
+    }
+    const idx = getIdxFromClientX(e.clientX, e.currentTarget);
+    setHoverIndex(idx);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    const wasDragging = pointerDownRef.current?.hasMoved;
+    pointerDownRef.current = null;
+
+    // Pure click (no drag): toggle pinned point
+    if (!wasDragging) {
+      const idx = getIdxFromClientX(e.clientX, e.currentTarget);
+      if (idx !== null) {
+        setSelectedPointIndex((prev) => (prev === idx ? null : idx));
+      }
+    }
+    // If user dragged: does not leave a pin, but the vertical black line tracked the measurement position
+  };
+
+  const handlePointerLeave = () => {
+    pointerDownRef.current = null;
+    setHoverIndex(null);
   };
 
   const hoveredPoint = hoverIndex !== null ? svgPoints[hoverIndex] : null;
   const selectedPoint = selectedPointIndex !== null && svgPoints[selectedPointIndex] ? svgPoints[selectedPointIndex] : null;
 
+  // The active point whose measurement is being inspected (hovered/dragged or pinned)
+  const activeInspectPoint = hoveredPoint || selectedPoint;
+
   // Find HR Zone of active point if viewing Heart Rate
   let hoveredHrZone = '';
-  const pointForZone = hoveredPoint || selectedPoint;
-  if (pointForZone && activeConfig.key === 'heartrate') {
+  if (activeInspectPoint && activeConfig.key === 'heartrate') {
     const zones = getAthleteHeartRateZones(
       athleteProfile,
       classification.category === 'Bike' ? 'bike' : 'run'
     );
-    const z = zones.find((item) => pointForZone.value <= item.maxHr) || zones[zones.length - 1];
+    const z = zones.find((item) => activeInspectPoint.value <= item.maxHr) || zones[zones.length - 1];
     hoveredHrZone = `Z${z.zone} ${z.name}`;
   }
+
+  // Dynamic 3-card summary stats
+  const summaryCards = useMemo(() => {
+    if (selectedMetric === 'altitude') {
+      return [
+        {
+          label: 'Min Elevation',
+          value: `${Math.round(chartData.minVal)} m`,
+          sub: 'Lowest altitude',
+          color: 'text-white',
+        },
+        {
+          label: 'Max Elevation',
+          value: `${Math.round(chartData.maxVal)} m`,
+          sub: 'Highest altitude',
+          color: 'text-white',
+        },
+        {
+          label: 'Total Gain',
+          value: `+${totalElevationGain} m`,
+          sub: 'Total elevation gained',
+          color: 'text-emerald-400 font-black',
+        },
+      ];
+    }
+
+    if (selectedMetric === 'cadence') {
+      return [
+        {
+          label: isBikeOrTurbo ? 'Active Min (Z2+)' : 'Active Min',
+          value: activeMinCadence > 0 ? `${activeMinCadence} rpm` : '--',
+          sub: isBikeOrTurbo ? `Power ≥ ${Math.round((athleteProfile.bikeFtp || 310) * 0.55)}W` : 'Moving cadence',
+          color: 'text-white',
+        },
+        {
+          label: 'Average Cadence',
+          value: `${Math.round(chartData.avgVal)} rpm`,
+          sub: 'Overall session avg',
+          color: 'text-amber-300',
+        },
+        {
+          label: 'Max Cadence',
+          value: `${Math.round(chartData.maxVal)} rpm`,
+          sub: 'Peak cadence observed',
+          color: 'text-white',
+        },
+      ];
+    }
+
+    if (selectedMetric === 'watts') {
+      const npVal = calculateNormalizedPower(activity);
+      return [
+        {
+          label: 'Average Power',
+          value: `${Math.round(chartData.avgVal)} W`,
+          sub: `${((chartData.avgVal / (athleteProfile.bikeFtp || 310)) * 100).toFixed(0)}% FTP`,
+          color: 'text-white',
+        },
+        {
+          label: 'Normalized Power (NP)',
+          value: npVal ? `${npVal} W` : `${Math.round(chartData.avgVal * 1.05)} W`,
+          sub: 'Physiological cost',
+          color: 'text-amber-400 font-black',
+        },
+        {
+          label: 'Max Power',
+          value: `${Math.round(chartData.maxVal)} W`,
+          sub: 'Peak sprint power',
+          color: 'text-white',
+        },
+      ];
+    }
+
+    if (selectedMetric === 'velocity_smooth') {
+      if (classification.category === 'Run') {
+        const avgPace = chartData.avgVal > 0.1 ? `${formatSecondsToMinSec(1000 / chartData.avgVal)}/km` : '--';
+        const bestPace = chartData.maxVal > 0.1 ? `${formatSecondsToMinSec(1000 / chartData.maxVal)}/km` : '--';
+        return [
+          {
+            label: 'Average Pace',
+            value: avgPace,
+            sub: `${(chartData.avgVal * 3.6).toFixed(1)} km/h equivalent`,
+            color: 'text-amber-300',
+          },
+          {
+            label: 'Best / Peak Pace',
+            value: bestPace,
+            sub: 'Fastest sustained pace',
+            color: 'text-sky-400 font-black',
+          },
+          {
+            label: 'Max Speed',
+            value: `${(chartData.maxVal * 3.6).toFixed(1)} kph`,
+            sub: 'Peak GPS speed',
+            color: 'text-white',
+          },
+        ];
+      }
+      if (classification.category === 'Swim') {
+        const avgPace = chartData.avgVal > 0.1 ? `${formatSecondsToMinSec(100 / chartData.avgVal)}/100m` : '--';
+        const bestPace = chartData.maxVal > 0.1 ? `${formatSecondsToMinSec(100 / chartData.maxVal)}/100m` : '--';
+        return [
+          {
+            label: 'Average Pace',
+            value: avgPace,
+            sub: 'Overall swim moving pace',
+            color: 'text-amber-300',
+          },
+          {
+            label: 'Fastest Lap / Pace',
+            value: bestPace,
+            sub: 'Best interval velocity',
+            color: 'text-sky-400 font-black',
+          },
+          {
+            label: 'Moving Time',
+            value: formatDuration(chartData.totalTime),
+            sub: 'Active swim time',
+            color: 'text-white',
+          },
+        ];
+      }
+      // Cycling
+      return [
+        {
+          label: 'Average Speed',
+          value: `${(chartData.avgVal * 3.6).toFixed(1)} kph`,
+          sub: 'Overall session avg',
+          color: 'text-amber-300',
+        },
+        {
+          label: 'Max Speed',
+          value: `${(chartData.maxVal * 3.6).toFixed(1)} kph`,
+          sub: 'Peak velocity',
+          color: 'text-white',
+        },
+        {
+          label: 'Active Min Speed',
+          value: `${activeMinSpeedKph} kph`,
+          sub: 'While moving (≥ 5 kph)',
+          color: 'text-white',
+        },
+      ];
+    }
+
+    // Default Heart Rate
+    const hrData = streams?.heartrate?.data || [];
+    const activeHrs = hrData.filter((h: any) => typeof h === 'number' && h >= 40);
+    const activeMinHr = activeHrs.length > 0 ? Math.min(...activeHrs) : Math.round(chartData.minVal);
+    return [
+      {
+        label: 'Active Min HR',
+        value: `${activeMinHr} bpm`,
+        sub: 'Lowest active heart rate',
+        color: 'text-white',
+      },
+      {
+        label: 'Average HR',
+        value: `${Math.round(chartData.avgVal)} bpm`,
+        sub: `${Math.round((chartData.avgVal / athleteProfile.maxHeartRate) * 100)}% Max HR`,
+        color: 'text-rose-400 font-bold',
+      },
+      {
+        label: 'Max HR',
+        value: `${Math.round(chartData.maxVal)} bpm`,
+        sub: 'Highest observed',
+        color: 'text-white',
+      },
+    ];
+  }, [
+    selectedMetric,
+    chartData,
+    totalElevationGain,
+    activeMinCadence,
+    isBikeOrTurbo,
+    athleteProfile,
+    activity,
+    classification.category,
+    activeMinSpeedKph,
+    streams?.heartrate?.data,
+  ]);
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-slate-950/80 border border-slate-800 p-3 sm:p-4 shadow-inner">
@@ -452,7 +686,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
               type="button"
               onClick={() => setSelectedPointIndex(null)}
               className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 transition-colors cursor-pointer"
-              title="Clear selected line"
+              title="Clear selected pin"
             >
               Clear Pin ✕
             </button>
@@ -490,11 +724,10 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-auto overflow-visible select-none cursor-crosshair touch-none"
-          onClick={handlePlotClick}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoverIndex(null)}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={() => setHoverIndex(null)}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
         >
           <defs>
             <linearGradient id={`stream-gradient-${activeConfig.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -572,7 +805,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             fill="#64748b"
             fontFamily="monospace"
           >
-            {axisMode === 'distance' ? '0 km' : '0m'}
+            {axisMode === 'distance' ? '0 km' : '0m 00s'}
           </text>
           <text
             x={padding.left + plotWidth / 2}
@@ -584,7 +817,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           >
             {axisMode === 'distance'
               ? `${(chartData.totalDist / 2000).toFixed(1)} km`
-              : formatSecondsToMinSec(chartData.totalTime / 2)}
+              : formatDuration(chartData.totalTime / 2)}
           </text>
           <text
             x={width - padding.right}
@@ -596,7 +829,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
           >
             {axisMode === 'distance'
               ? `${(chartData.totalDist / 1000).toFixed(1)} km`
-              : formatSecondsToMinSec(chartData.totalTime)}
+              : formatDuration(chartData.totalTime)}
           </text>
 
           {/* Area Fill */}
@@ -612,14 +845,14 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
             strokeLinejoin="round"
           />
 
-          {/* User Click Selection: Solid Vertical Black Line */}
-          {selectedPoint && (
+          {/* Solid Vertical Black Line showing position measurement is coming from (drag, hover, or pinned) */}
+          {activeInspectPoint && (
             <g>
               {/* Outer crisp white halo for high-contrast visibility against colored/dark backgrounds */}
               <line
-                x1={selectedPoint.x}
+                x1={activeInspectPoint.x}
                 y1={padding.top}
-                x2={selectedPoint.x}
+                x2={activeInspectPoint.x}
                 y2={padding.top + plotHeight}
                 stroke="#ffffff"
                 strokeWidth="4"
@@ -627,13 +860,28 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
               />
               {/* Solid Vertical Black Line requested by user */}
               <line
-                x1={selectedPoint.x}
+                x1={activeInspectPoint.x}
                 y1={padding.top}
-                x2={selectedPoint.x}
+                x2={activeInspectPoint.x}
                 y2={padding.top + plotHeight}
                 stroke="#000000"
                 strokeWidth="2.5"
               />
+              {/* Point on curve */}
+              <circle
+                cx={activeInspectPoint.x}
+                cy={activeInspectPoint.y}
+                r="4.5"
+                fill="#000000"
+                stroke="#ffffff"
+                strokeWidth="2"
+              />
+            </g>
+          )}
+
+          {/* Selected Pin Notches (only when point has been pinned by clicking) */}
+          {selectedPoint && (
+            <g>
               {/* Top pointer notch */}
               <polygon
                 points={`${selectedPoint.x - 5},${padding.top} ${selectedPoint.x + 5},${padding.top} ${selectedPoint.x},${padding.top + 7}`}
@@ -648,45 +896,12 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                 stroke="#ffffff"
                 strokeWidth="1"
               />
-              {/* Point on curve */}
-              <circle
-                cx={selectedPoint.x}
-                cy={selectedPoint.y}
-                r="5"
-                fill="#000000"
-                stroke="#ffffff"
-                strokeWidth="2.5"
-              />
-            </g>
-          )}
-
-          {/* Hover Crosshair & Indicator Point (if not already selecting) */}
-          {hoveredPoint && (!selectedPoint || hoveredPoint.index !== selectedPoint.index) && (
-            <g>
-              <line
-                x1={hoveredPoint.x}
-                y1={padding.top}
-                x2={hoveredPoint.x}
-                y2={padding.top + plotHeight}
-                stroke="#f8fafc"
-                strokeWidth="1"
-                strokeDasharray="2 2"
-                opacity="0.8"
-              />
-              <circle
-                cx={hoveredPoint.x}
-                cy={hoveredPoint.y}
-                r="4.5"
-                fill="#ffffff"
-                stroke={activeConfig.color}
-                strokeWidth="2.5"
-              />
             </g>
           )}
         </svg>
 
         {/* Selected or Hover Floating Details Card */}
-        {pointForZone && (
+        {activeInspectPoint && (
           <div
             className={`absolute top-2 pointer-events-none transform -translate-x-1/2 border rounded-xl px-3 py-1.5 shadow-xl backdrop-blur-md z-10 flex items-center gap-3 ${
               selectedPoint && (!hoveredPoint || hoveredPoint.index === selectedPoint.index)
@@ -694,7 +909,7 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                 : 'bg-slate-900/95 border-slate-700/80'
             }`}
             style={{
-              left: `${Math.max(12, Math.min(88, (pointForZone.x / width) * 100))}%`,
+              left: `${Math.max(12, Math.min(88, (activeInspectPoint.x / width) * 100))}%`,
             }}
           >
             <div className="flex flex-col">
@@ -704,15 +919,15 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
                 )}
                 <span>
                   {axisMode === 'distance'
-                    ? `${(pointForZone.distMeters / 1000).toFixed(2)} km`
-                    : formatSecondsToMinSec(pointForZone.timeSec)}
+                    ? `${(activeInspectPoint.distMeters / 1000).toFixed(2)} km`
+                    : formatDuration(activeInspectPoint.timeSec)}
                   {' · '}
-                  {formatSecondsToMinSec(pointForZone.timeSec)}
+                  {formatDuration(activeInspectPoint.timeSec)}
                 </span>
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-black font-mono text-white">
-                  {activeConfig.formatValue(pointForZone.value, classification.category)}
+                  {activeConfig.formatValue(activeInspectPoint.value, classification.category)}
                 </span>
                 {hoveredHrZone && (
                   <span className="text-[10px] font-bold text-amber-300 font-sans">
@@ -725,26 +940,21 @@ export const StravaStreamPlot: React.FC<StravaStreamPlotProps> = ({
         )}
       </div>
 
-      {/* Stream Min / Avg / Max Summary Strip */}
+      {/* Stream Useful Metrics Summary Strip (Min, Max, Total Gain for elevation, Active Min Cadence in Z2, NP for power, etc.) */}
       <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-800/80">
-        <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Min</span>
-          <span className="text-xs font-bold font-mono text-white mt-0.5">
-            {activeConfig.formatValue(chartData.minVal, classification.category)}
-          </span>
-        </div>
-        <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Average</span>
-          <span className="text-xs font-bold font-mono text-amber-300 mt-0.5">
-            {activeConfig.formatValue(chartData.avgVal, classification.category)}
-          </span>
-        </div>
-        <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Max</span>
-          <span className="text-xs font-bold font-mono text-white mt-0.5">
-            {activeConfig.formatValue(chartData.maxVal, classification.category)}
-          </span>
-        </div>
+        {summaryCards.map((card, i) => (
+          <div key={i} className="p-2 rounded-xl bg-slate-900 border border-slate-800/80 flex flex-col">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold truncate">
+              {card.label}
+            </span>
+            <span className={`text-xs font-bold font-mono mt-0.5 truncate ${card.color}`}>
+              {card.value}
+            </span>
+            <span className="text-[9px] text-slate-500 font-sans truncate mt-0.5">
+              {card.sub}
+            </span>
+          </div>
+        ))}
       </div>
 
       {/* Zone Distributions Container */}

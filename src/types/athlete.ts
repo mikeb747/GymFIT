@@ -90,6 +90,45 @@ export function calculateWorkKj(
 // --------------------------------------------------------------------------
 
 /**
+ * Automatically calculate age in years from Date of Birth string (YYYY-MM-DD)
+ */
+export function calculateAgeFromBirthDate(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const birth = new Date(dateStr);
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let years = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    years--;
+  }
+  return years >= 1 && years <= 120 ? years : null;
+}
+
+/**
+ * Format duration according to time formatting rule:
+ * Anything 1 min or above displays minutes and seconds (e.g. "1m 00s", "1m 24s", "25m 05s", "1h 05m 12s").
+ * Sub-minute displays "Xs" (e.g. "45s", "0s").
+ */
+export function formatDuration(totalSeconds: number): string {
+  if (!totalSeconds || isNaN(totalSeconds) || totalSeconds <= 0) return '0s';
+  const total = Math.round(totalSeconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const padSec = secs.toString().padStart(2, '0');
+
+  if (hours > 0) {
+    const padMin = minutes.toString().padStart(2, '0');
+    return `${hours}h ${padMin}m ${padSec}s`;
+  }
+  if (total >= 60) {
+    return `${minutes}m ${padSec}s`;
+  }
+  return `${secs}s`;
+}
+
+/**
  * Format seconds into mm:ss (e.g. 270 -> "4:30")
  */
 export function formatSecondsToMinSec(totalSeconds: number): string {

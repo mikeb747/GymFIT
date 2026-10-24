@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   User,
@@ -12,6 +12,8 @@ import {
   Sparkles,
   Info,
   ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import type { AthleteProfile } from '../types/athlete';
 import {
@@ -19,6 +21,7 @@ import {
   parseMinSecToSeconds,
   calculateCss,
   getAthleteHeartRateZones,
+  calculateAgeFromBirthDate,
 } from '../types/athlete';
 
 interface AthleteProfileModalProps {
@@ -79,11 +82,37 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     formatSecondsToMinSec(profile.swimOpenWaterPace100mSec)
   );
 
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkTabScroll = useCallback(() => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    checkTabScroll();
+    window.addEventListener('resize', checkTabScroll);
+    return () => window.removeEventListener('resize', checkTabScroll);
+  }, [checkTabScroll, isOpen, activeTab]);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction === 'left' ? -150 : 150, behavior: 'smooth' });
+    setTimeout(checkTabScroll, 250);
+  };
+
   // Synchronize when opening
   React.useEffect(() => {
     if (isOpen) {
-      setAge(profile.age);
       setBirthDate(profile.birthDate || '');
+      // Calculate age if birthDate present, otherwise use stored age
+      const computed = calculateAgeFromBirthDate(profile.birthDate);
+      setAge(computed !== null ? computed : profile.age);
       setHeightCm(profile.heightCm);
       setWeightKg(profile.weightKg);
       setMaxHeartRate(profile.maxHeartRate);
@@ -109,14 +138,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 
   const handleBirthDateChange = (val: string) => {
     setBirthDate(val);
-    if (val) {
-      const birth = new Date(val);
-      if (!isNaN(birth.getTime())) {
-        const diffYears = Math.floor((Date.now() - birth.getTime()) / (365.25 * 24 * 3600 * 1000));
-        if (diffYears >= 10 && diffYears <= 110) {
-          setAge(diffYears);
-        }
-      }
+    const computed = calculateAgeFromBirthDate(val);
+    if (computed !== null) {
+      setAge(computed);
     }
   };
 
@@ -217,71 +241,110 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none border-b border-slate-800/80 shrink-0">
+        {/* Tab Navigation with Left/Right Scroll Arrows */}
+        <div className="relative flex items-center border-b border-slate-800/80 shrink-0 pb-1">
+          {/* Left Arrow Button / Indicator */}
           <button
             type="button"
-            onClick={() => setActiveTab('physiology')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'physiology'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            onClick={() => scrollTabs('left')}
+            disabled={!canScrollLeft}
+            aria-label="Scroll tabs left"
+            className={`p-1.5 rounded-xl transition-all cursor-pointer mr-1 shrink-0 ${
+              canScrollLeft
+                ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 shadow-sm border border-slate-700'
+                : 'text-slate-600 cursor-not-allowed opacity-30'
             }`}
+            title={canScrollLeft ? 'More tabs to the left' : undefined}
           >
-            <Heart className="w-3.5 h-3.5 text-rose-400" />
-            <span>General & HR</span>
+            <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('running')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'running'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
+          {/* Scrollable Tab Strip */}
+          <div
+            ref={tabsContainerRef}
+            onScroll={checkTabScroll}
+            className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-none scroll-smooth py-0.5"
           >
-            <Footprints className="w-3.5 h-3.5 text-amber-400" />
-            <span>Running</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('physiology')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'physiology'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5 text-rose-400" />
+              <span>General & HR</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('cycling')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'cycling'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Bike className="w-3.5 h-3.5 text-orange-400" />
-            <span>Cycling (FTP)</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('running')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'running'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Footprints className="w-3.5 h-3.5 text-amber-400" />
+              <span>Running</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('swimming')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'swimming'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Waves className="w-3.5 h-3.5 text-sky-400" />
-            <span>Swimming & CSS</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('cycling')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'cycling'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Bike className="w-3.5 h-3.5 text-orange-400" />
+              <span>Cycling (FTP)</span>
+            </button>
 
+            <button
+              type="button"
+              onClick={() => setActiveTab('swimming')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'swimming'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Waves className="w-3.5 h-3.5 text-sky-400" />
+              <span>Swimming & CSS</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('zones')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'zones'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Zones Preview</span>
+            </button>
+          </div>
+
+          {/* Right Arrow Button / Indicator */}
           <button
             type="button"
-            onClick={() => setActiveTab('zones')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'zones'
-                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            onClick={() => scrollTabs('right')}
+            disabled={!canScrollRight}
+            aria-label="Scroll tabs right"
+            className={`p-1.5 rounded-xl transition-all cursor-pointer ml-1 shrink-0 ${
+              canScrollRight
+                ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 shadow-sm border border-slate-700'
+                : 'text-slate-600 cursor-not-allowed opacity-30'
             }`}
+            title={canScrollRight ? 'More tabs to the right' : undefined}
           >
-            <Activity className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Zones Preview</span>
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
@@ -297,19 +360,26 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              {/* Row 1: Date of Birth & Age on the same line */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Birthday</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-300">Date of Birth</label>
+                    <span className="text-[10px] text-slate-500">YYYY-MM-DD</span>
+                  </div>
                   <input
                     type="date"
                     value={birthDate}
                     onChange={(e) => handleBirthDateChange(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-bold font-mono text-white focus:outline-none focus:border-amber-400"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold font-mono text-white focus:outline-none focus:border-amber-400"
                   />
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Age</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-300">Age</label>
+                    <span className="text-[10px] text-amber-400 font-medium">Calculated from Date of Birth</span>
+                  </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -322,9 +392,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                     <span className="text-xs text-slate-500 font-mono">yrs</span>
                   </div>
                 </div>
+              </div>
 
+              {/* Row 2: Height & Weight on the same line */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Height</label>
+                  <label className="text-xs font-semibold text-slate-300">Height</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -339,7 +412,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Weight</label>
+                  <label className="text-xs font-semibold text-slate-300">Weight</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
