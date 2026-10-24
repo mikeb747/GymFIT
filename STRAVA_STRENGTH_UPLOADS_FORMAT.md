@@ -1,142 +1,128 @@
-# Strava Strength Training & Muscle Map Uploads Documentation
+# Strava Strength Training Uploads
 
-Reference: [Strava Developer Uploads Documentation](https://developers.strava.com/docs/uploads/)
+This guide summarizes Strava's published upload formats and how GymFIT currently
+uses them. Strava's upload documentation is the source of truth for accepted
+fields and processing behavior; the examples below are not a promise that
+Strava will display every exercise or metric in a particular way.
 
----
+References:
 
-## 1. Overview: How Strava Ingests Strength Training Activities
+- [Strava: Uploading to Strava](https://developers.strava.com/docs/uploads/)
+- [Strava API reference: PowerStream](https://developers.strava.com/docs/reference/#api-models-PowerStream)
+- [Strava API Playground](https://developers.strava.com/playground/)
 
-Strava supports structured strength training uploads for four activity types:
-- `WeightTraining`
-- `HighIntensityIntervalTraining`
-- `Workout`
-- `Crossfit`
+## Supported strength upload formats
 
-When an activity contains structured **Set Messages** (via Garmin FIT Activity binary file or Strava's strength JSON payload), Strava parses individual exercises, loads, set counts, and durations to automatically calculate:
-1. **Total Volume Lifted (kg)**
-2. **Total Active Time vs Rest Time**
-3. **Automated Muscle Map Shading** (Pectorals, Lats, Quads, Deltoids, Core, etc.)
+Strava documents structured sets for `WeightTraining`,
+`HighIntensityIntervalTraining`, `Workout`, and `Crossfit` activities in FIT
+files and in its limited strength-training JSON format.
 
----
+GymFIT currently generates a Garmin FIT Activity file and uploads it through
+Strava's uploads endpoint. It does not currently generate the JSON format.
 
-## 2. Formatting Duration vs. Repetitions (e.g. Planks vs. Bench Press)
+### FIT set messages
 
-In strength training, exercises fall into two primary tracking modalities:
-1. **Dynamic Movements (Sets & Repetitions)**: Barbell Bench Press, Squats, Curls, Lat Pulldowns.
-2. **Isometric & Timed Holds (Sets & Duration)**: Forearm Planks, Side Planks, Wall Sits, Hollow Body Holds, Dead Hangs.
+Strava supports FIT `set` messages (global message number `225`) for the
+strength activity types above. It supports exercises defined by the FIT SDK,
+but notes that some exercise mappings may appear as a more general exercise in
+Strava.
 
-### The Problem with Forcing "Reps" on Planks
-Entering "1 rep" for a 60-second plank distorts workout metrics and volume formulas. In Strava and the Garmin FIT specification:
-- Repetitions should be set to `0` (or omitted).
-- The `duration` field (in seconds for JSON, or milliseconds for FIT) stores the hold duration (e.g. `60` seconds).
-- Strava attributes the full set duration toward that exercise and shades the corresponding muscle group (e.g. **Core / Abdominals** for Planks).
+For FIT files containing sets, Strava's upload documentation says record
+messages with timestamps are not required. The file must still include
+`activity.timestamp` and `session.total_elapsed_time`; Strava uses these to
+determine the activity start and end. Activity type is detected from
+`session.sport` and `session.sub_sport`.
 
----
+Relevant FIT `set` field numbers:
 
-## 3. Concrete Data Format Examples
+| Field | Name | Meaning |
+|---:|---|---|
+| 0 | `duration` | Set duration |
+| 3 | `repetitions` | Repetitions performed |
+| 4 | `weight` | Set weight |
+| 5 | `set_type` | Active set or rest interval |
+| 6 | `start_time` | Set start time |
+| 7 | `category` | FIT exercise category |
+| 8 | `category_subtype` | FIT exercise subtype |
 
-### Example A: Standard Dynamic Exercise (Bench Press)
-3 sets of 10 repetitions @ 80.0 kg:
+GymFIT writes the set duration in FIT milliseconds, encodes weight in
+kilograms using the FIT scale of 16, and writes `set_type` as `1` for a working
+set and `0` for a rest interval. For its timed-exercise mode, GymFIT writes
+zero repetitions and the recorded duration. These are GymFIT implementation
+details; consult the FIT SDK for the complete binary profile and units.
+
+### Strava's limited strength JSON format
+
+The documented JSON format is for strength activities only. Its top-level
+required fields are `version` (the string `"1.0"`), `start_time` (ISO 8601
+with a timezone), `utc_offset` (seconds), `elapsed_time` (seconds), and a
+non-empty `sets` array. `active_time`, `total_calories`, `creator`, and
+`streams` are optional.
+
+Each set requires `exercise_type`. The documented optional fields are
+`repetitions` (integer), `weight` (number, kilograms), `duration` (integer,
+seconds), and `start_time` (ISO 8601 with timezone). Strava's supported
+`exercise_type` identifiers are the exact enum values listed on its upload
+page: use identifiers such as `BARBELL_BENCH_PRESS` or `CORE_GENERIC`, not
+invented lowercase labels such as `bench_press` or `plank`.
+
+Example: one barbell bench-press set and one timed core set.
 
 ```json
 {
+  "version": "1.0",
+  "start_time": "2026-10-13T09:00:00Z",
+  "utc_offset": 0,
+  "elapsed_time": 180,
+  "active_time": 105,
   "sets": [
     {
-      "exercise_type": "bench_press",
+      "exercise_type": "BARBELL_BENCH_PRESS",
       "repetitions": 10,
       "weight": 80.0,
       "duration": 45,
       "start_time": "2026-10-13T09:00:00Z"
     },
     {
-      "exercise_type": "bench_press",
-      "repetitions": 10,
-      "weight": 80.0,
-      "duration": 45,
+      "exercise_type": "CORE_GENERIC",
+      "duration": 60,
       "start_time": "2026-10-13T09:02:00Z"
-    },
-    {
-      "exercise_type": "bench_press",
-      "repetitions": 10,
-      "weight": 80.0,
-      "duration": 45,
-      "start_time": "2026-10-13T09:04:00Z"
     }
   ]
 }
 ```
 
----
+The upload documentation describes repetitions and duration as optional
+fields. It does not require `repetitions: 0` for timed exercises, nor does it
+specify a muscle-map result for any exercise. Use an exact supported exercise
+identifier, and avoid assuming how Strava will map or display it.
 
-### Example B: Timed Isometric Exercise (Forearm Plank)
-3 sets of 60-second holds (Bodyweight / 0 kg):
+The optional JSON `streams` object is not the same as Strava's activity stream
+API. For this upload format, `time` is required when `streams` is present and
+all supplied arrays must have the same length. The documented arrays are
+`time` (elapsed seconds), `active` (booleans), and `heartrate` (bpm); the
+uploads page does not list power as a strength JSON stream.
 
-```json
-{
-  "sets": [
-    {
-      "exercise_type": "plank",
-      "repetitions": 0,
-      "weight": 0.0,
-      "duration": 60,
-      "start_time": "2026-10-13T09:10:00Z"
-    },
-    {
-      "exercise_type": "plank",
-      "repetitions": 0,
-      "weight": 0.0,
-      "duration": 60,
-      "start_time": "2026-10-13T09:12:00Z"
-    },
-    {
-      "exercise_type": "plank",
-      "repetitions": 0,
-      "weight": 0.0,
-      "duration": 60,
-      "start_time": "2026-10-13T09:14:00Z"
-    }
-  ]
-}
-```
+## Upload and processing behavior
 
----
+Strava accepts uploads as `multipart/form-data` and processes them
+asynchronously. The initial response enqueues the file; poll the upload status
+to determine whether processing succeeded and obtain the activity ID. Strava
+recommends polling no more frequently than once per second. It identifies
+malformed data and duplicate submissions as possible errors, and notes that
+activity processing can finish before segment processing.
 
-## 4. Garmin FIT Binary Specification (Message #225: `set`)
+GymFIT currently checks status every four seconds. A completed upload response
+and a fully finished segment-processing response are not necessarily the same
+thing.
 
-In the `.FIT` binary file generated by IronFIT:
-- **Global Message Number**: `225` (`set`)
-- **Field 0 (`duration`)**: Elapsed duration of the set in milliseconds (`60000 ms` for a 60s plank hold).
-- **Field 3 (`repetitions`)**: Number of reps performed (`0` for timed isometric sets, `10` for dynamic sets).
-- **Field 4 (`weight`)**: Weight in kg scaled by 16 (`Math.round(weightKg * 16)`).
-- **Field 5 (`set_type`)**: `1` for active set, `0` for rest interval.
-- **Field 6 (`start_time`)**: Timestamp of set start.
+## Relevance of the other references
 
----
-
-## 5. Exercise Name Mapping
-
-IronFIT's built-in catalog is sourced from `src/data/exercises.csv`. Each row
-has a stable numeric exercise ID, an app-facing human-readable name, the exact
-Garmin FIT enum name, one or more categories, and optional Strava Muscle Map
-metadata. The FIT enum is resolved through
-`src/data/fitExerciseDefinitions.json` to the numeric category and subtype
-written in the `exercise_title` and `set` messages. The workout-step name stays
-human-readable; it is not a substitute for the FIT enum.
-
-Favorites are persisted separately as exercise IDs, initialized from
-`src/data/defaultFavoriteExerciseIds.json` on a fresh install. Last-used weights
-are stored separately by exercise ID and are empty on a fresh install. Exercise
-catalog metadata is not duplicated in those user preferences. Only exercises
-present in the catalog can be logged, so every logged exercise has a valid FIT
-mapping.
-
----
-
-## 6. Strava Muscle Map Weighting for Isometric Core Holds
-
-Strava weights the muscle map shading based on completed working sets:
-- **Plank / Side Plank**: 100% Core (Abs & Obliques)
-- **Wall Sit**: 100% Legs (Quadriceps & Glutes)
-- **Dead Hang**: 100% Back & Forearms (Lats & Grip)
-
-IronFIT automatically configures and formats your sets so both manual downloads and direct Strava API uploads populate seamlessly!
+- **PowerStream:** This API model is a power data stream, not a strength-set
+  upload format. It does not add fields to the documented strength JSON
+  schema. The uploads page separately documents `power` for FIT `record`
+  messages, but strength files with sets do not require those records.
+- **API Playground:** The Playground is an interactive explorer for trying
+  Strava API requests and inspecting responses. It can help investigate API
+  endpoints, but it does not define a separate upload format or replace the
+  uploads specification.
