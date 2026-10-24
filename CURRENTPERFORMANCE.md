@@ -6,9 +6,6 @@ The app should maintain a current performance profile for running, swimming and 
 - Cycling: FTP, Critical Power, power-duration profile and benchmark speeds.
 Each benchmark should retain its date, source and confidence level. Older results should gradually become less influential as more recent performance data becomes available.
 
-ccccccccccccccccccccccccccccccccccccccccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddd
-
-
 1. Swimming – maintaining current ability
 For swimming, I'd maintain two separate performance estimates:
 
