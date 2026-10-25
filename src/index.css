@@ -49,15 +49,21 @@ html[data-theme="light"] .bg-\[\#090a0f\]\/90 {
 }
 
 html[data-theme="light"] .bg-slate-950,
+html[data-theme="light"] .bg-slate-950\/30,
+html[data-theme="light"] .bg-slate-950\/40,
+html[data-theme="light"] .bg-slate-950\/50,
 html[data-theme="light"] .bg-slate-950\/60,
 html[data-theme="light"] .bg-slate-950\/70,
 html[data-theme="light"] .bg-slate-950\/80,
 html[data-theme="light"] .bg-slate-950\/90,
 html[data-theme="light"] .bg-slate-950\/95 {
-  background-color: #f1f5f9 !important;
+  background-color: #f8fafc !important;
 }
 
 html[data-theme="light"] .bg-slate-900,
+html[data-theme="light"] .bg-slate-900\/20,
+html[data-theme="light"] .bg-slate-900\/30,
+html[data-theme="light"] .bg-slate-900\/40,
 html[data-theme="light"] .bg-slate-900\/50,
 html[data-theme="light"] .bg-slate-900\/60,
 html[data-theme="light"] .bg-slate-900\/70,
@@ -72,14 +78,16 @@ html[data-theme="light"] .bg-slate-800\/90,
 html[data-theme="light"] .bg-slate-800\/80,
 html[data-theme="light"] .bg-slate-800\/60,
 html[data-theme="light"] .bg-slate-800\/50,
-html[data-theme="light"] .bg-slate-800\/40 {
-  background-color: #e2e8f0 !important;
+html[data-theme="light"] .bg-slate-800\/40,
+html[data-theme="light"] .bg-slate-800\/30,
+html[data-theme="light"] .bg-slate-800\/20 {
+  background-color: #f1f5f9 !important;
 }
 
 html[data-theme="light"] .bg-slate-700,
 html[data-theme="light"] .bg-slate-700\/90,
 html[data-theme="light"] .bg-slate-700\/80 {
-  background-color: #cbd5e1 !important;
+  background-color: #e2e8f0 !important;
 }
 
 /* Exercise set badge in light mode */

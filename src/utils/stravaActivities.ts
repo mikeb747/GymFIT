@@ -82,7 +82,7 @@ export const STRAVA_LAST_REFRESH_KEY = 'gymfit_strava_last_refresh_timestamp';
 
 export function isStravaAuthorizationError(error: unknown): boolean {
   return error instanceof Error &&
-    /authorization|unauthorized|access token/i.test(error.message);
+    /authorization|unauthorized|access token|401/i.test(error.message);
 }
 
 const STRAVA_ACTIVITY_DB_NAME = 'gymfit_strava_activity_data';
@@ -929,11 +929,19 @@ export function mergeStravaActivities(existing: StravaActivity[], incoming: Stra
   const map = new Map<string, StravaActivity>();
   // Existing loaded first
   for (const act of existing) {
-    map.set(String(act.id), act);
+    map.set(String(act.id), {
+      ...act,
+      gear_id: act.gear_id ?? (act as any).gear?.id ?? null,
+    });
   }
   // Incoming merged (updates existing or adds new)
   for (const act of incoming) {
-    map.set(String(act.id), act);
+    const prev = map.get(String(act.id));
+    map.set(String(act.id), {
+      ...prev,
+      ...act,
+      gear_id: act.gear_id ?? (act as any).gear?.id ?? prev?.gear_id ?? null,
+    });
   }
   // Sort descending by date
   return Array.from(map.values()).sort((a, b) => {
@@ -971,13 +979,23 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
         },
       });
 
+      if (res.status === 401) {
+        throw new Error('Strava Authorization Error (401): access token expired');
+      }
+
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          incoming = data;
+          incoming = data.map((item: any) => ({
+            ...item,
+            gear_id: item.gear_id || item.gear?.id || null,
+          }));
         }
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && /401|authorization|unauthorized/i.test(err.message)) {
+        throw err;
+      }
       // Fall through
     }
   }
@@ -999,7 +1017,10 @@ export async function syncStravaActivitiesDelta(accessToken: string): Promise<St
       throw new Error(data.message || data.error || `Strava activities request failed (${stravaRes.status})`);
     }
     if (Array.isArray(data)) {
-      incoming = data;
+      incoming = data.map((item: any) => ({
+        ...item,
+        gear_id: item.gear_id || item.gear?.id || null,
+      }));
     }
   }
 
@@ -1035,13 +1056,23 @@ export async function fetchOlderStravaActivities(
         },
       });
 
+      if (res.status === 401) {
+        throw new Error('Strava Authorization Error (401): access token expired');
+      }
+
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          olderData = data;
+          olderData = data.map((item: any) => ({
+            ...item,
+            gear_id: item.gear_id || item.gear?.id || null,
+          }));
         }
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && /401|authorization|unauthorized/i.test(err.message)) {
+        throw err;
+      }
       // Fall through
     }
   }
@@ -1063,7 +1094,10 @@ export async function fetchOlderStravaActivities(
       throw new Error(data.message || data.error || `Failed to fetch older activities (${stravaRes.status})`);
     }
     if (Array.isArray(data)) {
-      olderData = data;
+      olderData = data.map((item: any) => ({
+        ...item,
+        gear_id: item.gear_id || item.gear?.id || null,
+      }));
     }
   }
 

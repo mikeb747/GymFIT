@@ -16,8 +16,14 @@ export function loadAthleteProfile(): AthleteProfile {
     if (profile.bikeFtp === 250 || !profile.bikeFtp) {
       profile.bikeFtp = 310;
     }
-    if (profile.thresholdPaceRunOutdoorSec === 270 || !profile.thresholdPaceRunOutdoorSec) {
-      profile.thresholdPaceRunOutdoorSec = 228; // 3:48/km
+    if (profile.thresholdPaceRunOutdoorSec === 228 || profile.thresholdPaceRunOutdoorSec === 270 || !profile.thresholdPaceRunOutdoorSec) {
+      profile.thresholdPaceRunOutdoorSec = 232; // 3:52/km
+    }
+    if (!profile.injuries) {
+      profile.injuries = DEFAULT_ATHLETE_PROFILE.injuries;
+    }
+    if (!profile.weeklyAvailability) {
+      profile.weeklyAvailability = DEFAULT_ATHLETE_PROFILE.weeklyAvailability;
     }
     if (profile.thresholdPaceRunTreadmillSec === 285 || !profile.thresholdPaceRunTreadmillSec) {
       profile.thresholdPaceRunTreadmillSec = 228; // 3:48/km

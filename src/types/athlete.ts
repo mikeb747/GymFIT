@@ -21,7 +21,7 @@ export interface AthleteProfile {
 
   // Running Thresholds
   thresholdHeartRateRun: number; // bpm (Lactate Threshold Heart Rate, e.g. 168)
-  thresholdPaceRunOutdoorSec: number; // seconds per km (3:48/km = 228)
+  thresholdPaceRunOutdoorSec: number; // seconds per km (3:52/km = 232)
   thresholdPaceRunTreadmillSec: number; // seconds per km for treadmill/indoor (3:48/km = 228)
 
   // Cycling Thresholds & Hardware Calibration
@@ -35,7 +35,143 @@ export interface AthleteProfile {
   swim400mTimeSec: number; // seconds for 400m all-out test (5:55 = 355)
   swimPoolPace100mSec: number; // seconds per 100m for pool swimming (1:30/100m = 90)
   swimOpenWaterPace100mSec: number; // seconds per 100m for open water swimming (1:38/100m = 98)
+
+  // Active Injuries & Physical Limitations
+  injuries?: AthleteInjury[];
+
+  // Weekly Training Availability & Work Schedule
+  weeklyAvailability?: WeeklyAvailabilityMatrix;
 }
+
+export type InjuryStatus = 'active' | 'monitoring' | 'recovering' | 'cleared';
+
+export type BodyArea =
+  | 'Calf'
+  | 'Achilles'
+  | 'Knee'
+  | 'Hamstring'
+  | 'Quadriceps'
+  | 'Hip / Glute'
+  | 'Lower Back'
+  | 'Shoulder'
+  | 'Foot / Plantar'
+  | 'Ankle'
+  | 'Neck / Upper Back'
+  | 'Elbow / Wrist'
+  | 'Other';
+
+export interface AthleteInjury {
+  id: string;
+  name: string; // e.g. "Soleus / Calf Strain"
+  bodyArea: BodyArea;
+  side?: 'left' | 'right' | 'bilateral' | 'center';
+  status: InjuryStatus;
+  dateDiagnosed?: string; // e.g. "2026-10-12"
+  painLevel?: number; // 0-10 scale
+  sportModifications: string; // e.g. "Pull buoy swimming only during calf strain; soft-surface running under 30min; low torque on bike"
+  rehabExercises?: string; // e.g. "Seated calf raises, eccentric heel drops on step"
+  notes?: string;
+}
+
+export type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface DayAvailability {
+  day: DayOfWeek;
+  label: string; // "Monday", etc.
+  shortLabel: string; // "Mon", etc.
+  isWorkday: boolean;
+  shiftStart?: string; // e.g. "08:30"
+  shiftEnd?: string; // e.g. "17:00"
+  availableWindows: ('morning' | 'lunch' | 'evening' | 'anytime')[];
+  preferredActivities: string[]; // e.g. ["Track Run", "Long Ride"]
+  notes?: string;
+}
+
+export type WeeklyAvailabilityMatrix = Record<DayOfWeek, DayAvailability>;
+
+export const DEFAULT_WEEKLY_AVAILABILITY: WeeklyAvailabilityMatrix = {
+  mon: {
+    day: 'mon',
+    label: 'Monday',
+    shortLabel: 'Mon',
+    isWorkday: true,
+    shiftStart: '08:30',
+    shiftEnd: '17:00',
+    availableWindows: ['evening'],
+    preferredActivities: ['Gym / Strength', 'Recovery Spin'],
+  },
+  tue: {
+    day: 'tue',
+    label: 'Tuesday',
+    shortLabel: 'Tue',
+    isWorkday: true,
+    shiftStart: '08:30',
+    shiftEnd: '17:00',
+    availableWindows: ['morning', 'evening'],
+    preferredActivities: ['Track Run'],
+  },
+  wed: {
+    day: 'wed',
+    label: 'Wednesday',
+    shortLabel: 'Wed',
+    isWorkday: true,
+    shiftStart: '08:30',
+    shiftEnd: '17:00',
+    availableWindows: ['morning', 'evening'],
+    preferredActivities: ['Swim Technique', 'Bike Intervals / Turbo'],
+  },
+  thu: {
+    day: 'thu',
+    label: 'Thursday',
+    shortLabel: 'Thu',
+    isWorkday: true,
+    shiftStart: '08:30',
+    shiftEnd: '17:00',
+    availableWindows: ['evening'],
+    preferredActivities: ['Tempo Run', 'Gym / Strength'],
+  },
+  fri: {
+    day: 'fri',
+    label: 'Friday',
+    shortLabel: 'Fri',
+    isWorkday: true,
+    shiftStart: '08:30',
+    shiftEnd: '16:30',
+    availableWindows: ['evening'],
+    preferredActivities: ['Swim Endurance', 'Recovery Spin'],
+  },
+  sat: {
+    day: 'sat',
+    label: 'Saturday',
+    shortLabel: 'Sat',
+    isWorkday: false,
+    availableWindows: ['morning', 'anytime'],
+    preferredActivities: ['Long Ride'],
+  },
+  sun: {
+    day: 'sun',
+    label: 'Sunday',
+    shortLabel: 'Sun',
+    isWorkday: false,
+    availableWindows: ['morning', 'anytime'],
+    preferredActivities: ['Long Run', 'Core / Mobility'],
+  },
+};
+
+export const DEFAULT_INJURIES: AthleteInjury[] = [
+  {
+    id: 'inj-default-1',
+    name: 'Soleus / Calf Strain',
+    bodyArea: 'Calf',
+    side: 'left',
+    status: 'active',
+    dateDiagnosed: '2026-10-12',
+    painLevel: 3,
+    sportModifications: 'Pull buoy swimming only during calf strain (no wall push-offs or kicking). Low-cadence high-torque cycling restricted. Soft-surface run only under 30min.',
+    rehabExercises: 'Bent-knee seated calf raises (3x15 @ 20kg), eccentric heel drops on step, light isometric wall sits.',
+    notes: 'Triggered during track session. Keep running volume strictly aerobic.',
+  },
+];
 
 export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   age: 35,
@@ -47,7 +183,7 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   periodization: '4weeks', // 3 progressive weeks and 1 easier week
 
   thresholdHeartRateRun: 168,
-  thresholdPaceRunOutdoorSec: 228, // 3:48 /km
+  thresholdPaceRunOutdoorSec: 232, // 3:52 /km
   thresholdPaceRunTreadmillSec: 228, // 3:48 /km
 
   thresholdHeartRateBike: 162,
@@ -59,6 +195,9 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
   swim400mTimeSec: 355, // 5:55
   swimPoolPace100mSec: 90, // 1:30 / 100m
   swimOpenWaterPace100mSec: 98, // 1:38 / 100m
+
+  injuries: DEFAULT_INJURIES,
+  weeklyAvailability: DEFAULT_WEEKLY_AVAILABILITY,
 };
 
 /**

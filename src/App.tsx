@@ -881,11 +881,15 @@ export default function App() {
       let currentToken = stravaToken;
       let tokenWasRefreshed = false;
       const tokenExpiresAt = Number(localStorage.getItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT) || 0);
-      if (tokenExpiresAt > 0 && tokenExpiresAt <= Math.floor(Date.now() / 1000) + 60) {
-        currentToken = await refreshStravaAccessToken();
-        tokenWasRefreshed = true;
-        setStravaToken(currentToken);
-        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+      if (tokenExpiresAt > 0 && tokenExpiresAt <= Math.floor(Date.now() / 1000) + 90) {
+        try {
+          currentToken = await refreshStravaAccessToken();
+          tokenWasRefreshed = true;
+          setStravaToken(currentToken);
+          localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+        } catch (err) {
+          console.warn('Pre-emptive token refresh before loading older activities failed:', err);
+        }
       }
 
       const oldest = stravaActivities[stravaActivities.length - 1];
@@ -897,6 +901,7 @@ export default function App() {
       } catch (err) {
         if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
         currentToken = await refreshStravaAccessToken();
+        tokenWasRefreshed = true;
         setStravaToken(currentToken);
         localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
         result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 50);
@@ -1923,6 +1928,7 @@ export default function App() {
         goals={athleteGoals}
         onSaveGoals={handleSaveAthleteGoals}
         initialTab={profileModalTab}
+        stravaActivities={stravaActivities}
         theme={theme}
         onThemeChanged={handleThemeChanged}
         displayDensity={displayDensity}
