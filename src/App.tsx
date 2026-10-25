@@ -31,6 +31,8 @@ import {
   saveAthleteProfile,
   resetAthleteProfile,
 } from './utils/athleteStorage';
+import type { TrainingGoal } from './types/goals';
+import { loadAthleteGoals, saveAthleteGoals } from './utils/goalsStorage';
 import { downloadFitFile } from './utils/fitGenerator';
 import {
   checkAndProcessOAuthRedirect,
@@ -87,7 +89,6 @@ import {
   UploadCloud,
   ExternalLink,
   HeartPulse,
-  Sliders,
 } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -148,28 +149,42 @@ export default function App() {
     } catch {}
   };
 
-  const [displayDensity, setDisplayDensity] = useState<'standard' | 'compact' | 'comfortable'>(() => {
+  const [displayDensity, setDisplayDensity] = useState<number | 'standard' | 'compact' | 'comfortable'>(() => {
     try {
-      return (localStorage.getItem(STORAGE_KEYS.DISPLAY_DENSITY) as any) || 'standard';
+      const stored = localStorage.getItem(STORAGE_KEYS.DISPLAY_DENSITY);
+      if (stored) {
+        const num = Number(stored);
+        if (!isNaN(num) && num >= 70 && num <= 130) return num;
+        if (stored === 'compact') return 85;
+        if (stored === 'comfortable') return 115;
+        if (stored === 'standard') return 100;
+      }
+      return 100;
     } catch {
-      return 'standard';
+      return 100;
     }
   });
 
-  const handleDensityChanged = (newDensity: 'standard' | 'compact' | 'comfortable') => {
+  const handleDensityChanged = (newDensity: number | 'standard' | 'compact' | 'comfortable') => {
     setDisplayDensity(newDensity);
     try {
-      localStorage.setItem(STORAGE_KEYS.DISPLAY_DENSITY, newDensity);
+      localStorage.setItem(STORAGE_KEYS.DISPLAY_DENSITY, String(newDensity));
     } catch {}
   };
 
   const [isAthleteProfileOpen, setIsAthleteProfileOpen] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<ProfileTab>('settings');
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(() => loadAthleteProfile());
+  const [athleteGoals, setAthleteGoals] = useState<TrainingGoal[]>(() => loadAthleteGoals());
 
   const handleSaveAthleteProfile = (updated: AthleteProfile) => {
     setAthleteProfile(updated);
     saveAthleteProfile(updated);
+  };
+
+  const handleSaveAthleteGoals = (updated: TrainingGoal[]) => {
+    setAthleteGoals(updated);
+    saveAthleteGoals(updated);
   };
 
   const handleResetAthleteProfile = () => {
@@ -690,10 +705,19 @@ export default function App() {
     }
   }, [theme]);
 
-  // Sync display density attribute to document element
+  // Sync display density attribute and font-size scaling to document element
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.documentElement.setAttribute('data-density', displayDensity);
+      let percent = 100;
+      if (typeof displayDensity === 'number') {
+        percent = displayDensity;
+      } else if (displayDensity === 'compact') {
+        percent = 85;
+      } else if (displayDensity === 'comfortable') {
+        percent = 115;
+      }
+      document.documentElement.setAttribute('data-density', String(displayDensity));
+      document.documentElement.style.fontSize = `${(percent / 100) * 16}px`;
     }
   }, [displayDensity]);
 
@@ -854,10 +878,30 @@ export default function App() {
     if (!stravaToken || isLoadingMoreStrava || !hasMoreStrava || stravaActivities.length === 0) return;
     setIsLoadingMoreStrava(true);
     try {
+      let currentToken = stravaToken;
+      let tokenWasRefreshed = false;
+      const tokenExpiresAt = Number(localStorage.getItem(STRAVA_CONFIG.STORAGE_KEYS.EXPIRES_AT) || 0);
+      if (tokenExpiresAt > 0 && tokenExpiresAt <= Math.floor(Date.now() / 1000) + 60) {
+        currentToken = await refreshStravaAccessToken();
+        tokenWasRefreshed = true;
+        setStravaToken(currentToken);
+        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+      }
+
       const oldest = stravaActivities[stravaActivities.length - 1];
       const oldestEpoch = Math.floor(new Date(oldest.start_date).getTime() / 1000);
 
-      const result = await fetchOlderStravaActivities(stravaToken, oldestEpoch, 50);
+      let result;
+      try {
+        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 50);
+      } catch (err) {
+        if (tokenWasRefreshed || !isStravaAuthorizationError(err)) throw err;
+        currentToken = await refreshStravaAccessToken();
+        setStravaToken(currentToken);
+        localStorage.setItem(STORAGE_KEYS.STRAVA_TOKEN, currentToken);
+        result = await fetchOlderStravaActivities(currentToken, oldestEpoch, 50);
+      }
+
       setStravaActivities(result.activities);
       setHasMoreStrava(result.hasMore);
 
@@ -1251,21 +1295,16 @@ export default function App() {
       {/* ========================================================= */}
       <header className="sticky top-0 z-40 bg-[#090A0F]/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          {/* Brand Wordmark & Icon */}
-          <div className="flex items-center gap-2.5 select-none text-left p-1 -m-1">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 font-black flex items-center justify-center text-sm shadow-md shadow-amber-500/10">
-              <Sliders className="w-4 h-4 stroke-[2.5]" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-sm sm:text-base font-extrabold tracking-tight text-white leading-snug">
-                {brandTitle}
+          {/* Brand Wordmark */}
+          <div className="flex flex-col min-w-0 select-none text-left p-1 -m-1">
+            <span className="text-sm sm:text-base font-extrabold tracking-tight text-white leading-snug">
+              {brandTitle}
+            </span>
+            {brandSubtitle && (
+              <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight truncate block max-w-[185px] sm:max-w-xs">
+                {brandSubtitle}
               </span>
-              {brandSubtitle && (
-                <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight truncate block max-w-[185px] sm:max-w-xs">
-                  {brandSubtitle}
-                </span>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Action cluster */}
@@ -1881,6 +1920,8 @@ export default function App() {
         profile={athleteProfile}
         onSaveProfile={handleSaveAthleteProfile}
         onResetDefaults={handleResetAthleteProfile}
+        goals={athleteGoals}
+        onSaveGoals={handleSaveAthleteGoals}
         initialTab={profileModalTab}
         theme={theme}
         onThemeChanged={handleThemeChanged}

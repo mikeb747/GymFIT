@@ -8,6 +8,7 @@ export interface StravaActivity {
   type: string;
   sport_type?: string;
   trainer?: boolean;
+  gear_id?: string | null;
   start_date: string;
   start_date_local: string;
   timezone?: string;

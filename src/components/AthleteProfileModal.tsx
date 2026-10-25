@@ -18,6 +18,8 @@ import {
   Sun,
   Moon,
   Pencil,
+  Trophy,
+  Wrench,
 } from 'lucide-react';
 import type { AthleteProfile } from '../types/athlete';
 import {
@@ -27,10 +29,14 @@ import {
   getAthleteHeartRateZones,
   calculateAgeFromBirthDate,
 } from '../types/athlete';
-export type AppTheme = 'dark' | 'light';
-export type DisplayDensity = 'standard' | 'compact' | 'comfortable';
+import type { TrainingGoal } from '../types/goals';
+import { loadAthleteGoals, saveAthleteGoals } from '../utils/goalsStorage';
+import { GoalsTab } from './GoalsTab';
 
-export type ProfileTab = 'settings' | 'physiology' | 'running' | 'cycling' | 'swimming' | 'zones';
+export type AppTheme = 'dark' | 'light';
+export type DisplayDensity = number | 'standard' | 'compact' | 'comfortable';
+
+export type ProfileTab = 'settings' | 'physiology' | 'swimming' | 'cycling' | 'running' | 'zones' | 'goals';
 
 interface AthleteProfileModalProps {
   isOpen: boolean;
@@ -38,6 +44,8 @@ interface AthleteProfileModalProps {
   profile: AthleteProfile;
   onSaveProfile: (profile: AthleteProfile) => void;
   onResetDefaults: () => void;
+  goals?: TrainingGoal[];
+  onSaveGoals?: (goals: TrainingGoal[]) => void;
   initialTab?: ProfileTab;
 
   // Settings tab props
@@ -62,6 +70,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   profile,
   onSaveProfile,
   onResetDefaults,
+  goals: propGoals,
+  onSaveGoals,
   initialTab,
   theme = 'dark',
   onThemeChanged,
@@ -79,6 +89,12 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>('settings');
   const [savedFeedback, setSavedFeedback] = useState(false);
+
+  // Goals state
+  const [goals, setGoals] = useState<TrainingGoal[]>(() => propGoals || loadAthleteGoals());
+  const [initialGoalsSnapshot, setInitialGoalsSnapshot] = useState<string>(() =>
+    JSON.stringify(propGoals || loadAthleteGoals())
+  );
 
   // Settings tab local states
   const [tempTitle, setTempTitle] = useState(brandTitle);
@@ -115,6 +131,10 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   // Cycling
   const [thresholdHeartRateBike, setThresholdHeartRateBike] = useState(profile.thresholdHeartRateBike);
   const [bikeFtp, setBikeFtp] = useState(profile.bikeFtp);
+  const [bikeCrankLengthMm, setBikeCrankLengthMm] = useState<number>(profile.bikeCrankLengthMm || 172.5);
+  const [bikeCrankLengths, setBikeCrankLengths] = useState<Record<string, number>>(profile.bikeCrankLengths || {});
+  const [newGearIdInput, setNewGearIdInput] = useState('');
+  const [newGearLenInput, setNewGearLenInput] = useState('172.5');
 
   // Swimming
   const [swim100mStr, setSwim100mStr] = useState(
@@ -130,6 +150,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     formatSecondsToMinSec(profile.swimOpenWaterPace100mSec)
   );
 
+  const wasOpenRef = useRef(false);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -137,10 +158,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
   const tabButtonRefs = useRef<Record<ProfileTab, HTMLButtonElement | null>>({
     settings: null,
     physiology: null,
-    running: null,
-    cycling: null,
     swimming: null,
+    cycling: null,
+    running: null,
     zones: null,
+    goals: null,
   });
 
   const checkTabScroll = useCallback(() => {
@@ -231,11 +253,15 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       setTempHeroHeading(heroHeading);
       setTempHeroDescription(heroDescription);
 
+      const currentG = propGoals || loadAthleteGoals();
+      setGoals(currentG);
+      setInitialGoalsSnapshot(JSON.stringify(currentG));
+
       setSavedFeedback(false);
     }
-  }, [isOpen, profile, initialTab, brandTitle, brandSubtitle, heroEyebrow, heroHeading, heroDescription]);
+  }, [isOpen, profile, propGoals, initialTab, brandTitle, brandSubtitle, heroEyebrow, heroHeading, heroDescription]);
 
-  // Compute dirty state (whether any physiology values changed compared to loaded profile)
+  // Compute dirty state (whether any physiology values or goals changed)
   const isDirty = useMemo(() => {
     if (!profile) return false;
     const initialOutdoorStr = formatSecondsToMinSec(profile.thresholdPaceRunOutdoorSec);
@@ -245,7 +271,7 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     const initialPoolPaceStr = formatSecondsToMinSec(profile.swimPoolPace100mSec);
     const initialOpenWaterPaceStr = formatSecondsToMinSec(profile.swimOpenWaterPace100mSec);
 
-    return (
+    const arePhysiologyFieldsDirty =
       age !== profile.age ||
       heightCm !== profile.heightCm ||
       weightKg !== profile.weightKg ||
@@ -260,8 +286,11 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
       swim100mStr !== initial100mStr ||
       swim400mStr !== initial400mStr ||
       swimPoolPaceStr !== initialPoolPaceStr ||
-      swimOpenWaterPaceStr !== initialOpenWaterPaceStr
-    );
+      swimOpenWaterPaceStr !== initialOpenWaterPaceStr;
+
+    const areGoalsDirty = JSON.stringify(goals) !== initialGoalsSnapshot;
+
+    return arePhysiologyFieldsDirty || areGoalsDirty;
   }, [
     profile,
     age,
@@ -279,6 +308,8 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     swim400mStr,
     swimPoolPaceStr,
     swimOpenWaterPaceStr,
+    goals,
+    initialGoalsSnapshot,
   ]);
 
   if (!isOpen) return null;
@@ -334,6 +365,9 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
     };
 
     onSaveProfile(updated);
+    saveAthleteGoals(goals);
+    onSaveGoals?.(goals);
+    setInitialGoalsSnapshot(JSON.stringify(goals));
     setSavedFeedback(true);
     setTimeout(() => {
       setSavedFeedback(false);
@@ -537,6 +571,23 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
             >
               <Activity className="w-3.5 h-3.5 text-emerald-400" />
               <span>Zones</span>
+            </button>
+
+            {/* Tab 6: Goals */}
+            <button
+              ref={(el) => {
+                tabButtonRefs.current.goals = el;
+              }}
+              type="button"
+              onClick={() => handleSelectTab('goals')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'goals'
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5 text-amber-400" />
+              <span>Goals</span>
             </button>
           </div>
 
@@ -1351,6 +1402,17 @@ export const AthleteProfileModal: React.FC<AthleteProfileModalProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 6: GOALS */}
+          {/* ========================================================= */}
+          {activeTab === 'goals' && (
+            <GoalsTab
+              goals={goals}
+              onChangeGoals={(updated) => setGoals(updated)}
+              profile={previewProfile}
+            />
           )}
         </div>
 

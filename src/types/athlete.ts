@@ -24,9 +24,11 @@ export interface AthleteProfile {
   thresholdPaceRunOutdoorSec: number; // seconds per km (3:48/km = 228)
   thresholdPaceRunTreadmillSec: number; // seconds per km for treadmill/indoor (3:48/km = 228)
 
-  // Cycling Thresholds
+  // Cycling Thresholds & Hardware Calibration
   thresholdHeartRateBike: number; // bpm (Bike LTHR, e.g. 162)
   bikeFtp: number; // in Watts (Functional Threshold Power, e.g. 310)
+  bikeCrankLengthMm?: number; // Default crank length in mm (e.g. 172.5) for torque calculations
+  bikeCrankLengths?: Record<string, number>; // Specific gear_id -> crank length in mm (e.g. { "b12345": 170.0 })
 
   // Swimming Thresholds & Time Trial Benchmarks
   swim100mTimeSec: number; // seconds for 100m all-out test (1:24 = 84)
@@ -50,12 +52,29 @@ export const DEFAULT_ATHLETE_PROFILE: AthleteProfile = {
 
   thresholdHeartRateBike: 162,
   bikeFtp: 310, // 310 Watts
+  bikeCrankLengthMm: 172.5,
+  bikeCrankLengths: {},
 
   swim100mTimeSec: 84, // 1:24
   swim400mTimeSec: 355, // 5:55
   swimPoolPace100mSec: 90, // 1:30 / 100m
   swimOpenWaterPace100mSec: 98, // 1:38 / 100m
 };
+
+/**
+ * Helper to retrieve the active crank length in mm for a given bike gear ID,
+ * falling back to the athlete's default crank length or 172.5mm.
+ */
+export function getAthleteBikeCrankLength(
+  profile?: AthleteProfile,
+  gearId?: string | null
+): number {
+  if (!profile) return 172.5;
+  if (gearId && profile.bikeCrankLengths && profile.bikeCrankLengths[gearId]) {
+    return profile.bikeCrankLengths[gearId];
+  }
+  return profile.bikeCrankLengthMm || 172.5;
+}
 
 /**
  * Energy / Work calculation from average power and duration:
